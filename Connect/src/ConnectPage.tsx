@@ -230,7 +230,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
       </div>
     </section>
 
-    <div className="sticky top-2 z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}</div>
+    <div className="sticky top-[5.5rem] z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}</div>
 
     <div className="flex flex-wrap items-center justify-between gap-4">
       <p className="text-sm text-slate-500">{filtered.length} resources in this preview · demos are clearly marked</p>

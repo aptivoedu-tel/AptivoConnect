@@ -13,7 +13,7 @@ export default function ConnectShell({ children, userName, userAvatar }: { child
             <Sidebar userRole="student" />
             <div className={`flex min-w-0 flex-1 flex-col transition-all duration-300 ${isSidebarCollapsed ? 'lg:ml-28' : 'lg:ml-80'}`}>
                 <Header userName={userName} userAvatar={userAvatar} />
-                <main className="flex-1 px-4 pb-28 pt-8 sm:px-8 lg:pb-8">{children}</main>
+                <main className="flex-1 px-4 pb-28 pt-24 sm:px-8 lg:pb-8">{children}</main>
                 <Footer />
             </div>
         </div>
