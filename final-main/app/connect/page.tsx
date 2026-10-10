@@ -19,5 +19,5 @@ export default async function StudentConnectPage() {
     if (user.role === 'institution_admin') redirect('/institution-admin');
     if (user.role !== 'student') redirect('/login?error=ACCOUNT_UNAVAILABLE');
 
-    return <ConnectShell userName={user.full_name} userAvatar={user.avatar_url}><ConnectPage /></ConnectShell>;
+    return <ConnectShell userName={user.full_name} userAvatar={user.avatar_url}><ConnectPage viewer={{ id: String(user.id ?? session.user.id!), name: user.full_name, role: user.role }} /></ConnectShell>;
 }
