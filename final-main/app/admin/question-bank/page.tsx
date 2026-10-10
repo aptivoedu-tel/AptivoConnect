@@ -1,0 +1,1906 @@
+'use client';
+
+import React, { useEffect, useState, useRef } from 'react';
+import {
+    ChevronRight, ChevronDown,
+    Layers, Hash, FileText,
+    Search, RefreshCw, Target as TargetIcon,
+    CheckCircle2, HelpCircle,
+    BarChart3, Plus, Filter, Settings, ArrowRightLeft,
+    Edit2, Pencil, UploadCloud, ChevronLeft, ChevronDown as ChevronDownIcon,
+    Image as ImageIcon
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
+import Sidebar from '@/components/layout/Sidebar';
+import Header from '@/components/layout/Header';
+import { AuthService } from '@/lib/services/authService';
+// Supabase removed — using MongoDB API via fetch
+// import { supabase } from '@/lib/supabase/client';
+import { toast } from 'sonner';
+import { X, Save, Trash2 } from 'lucide-react';
+import { useUI } from '@/lib/context/UIContext';
+import { useLoading } from '@/lib/context/LoadingContext';
+import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
+import RichTextEditor from '@/components/shared/RichTextEditor';
+import { SystemSettingsService } from '@/lib/services/systemSettingsService';
+
+// Data Type
+type HierarchyItem = {
+    id: string;
+    dbId: number;
+    type: 'subject' | 'topic' | 'subtopic';
+    title: string;
+    parentId?: number | null;
+    children?: HierarchyItem[];
+    expanded?: boolean;
+    mcqCount?: number;
+};
+
+export default function SuperAdminQuestionBankPage() {
+    const [user, setUser] = useState<any>(null);
+    const { setLoading: setGlobalLoading, isLoading: loading } = useLoading();
+    const passageFileInputRef = useRef<HTMLInputElement>(null);
+    const [data, setData] = useState<HierarchyItem[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedItem, setSelectedItem] = useState<HierarchyItem | null>(null);
+    const [questions, setQuestions] = useState<any[]>([]);
+    const questionsLoading = loading; // Map to global loading
+
+    // MCQ Modal State
+    const [isMcqModalOpen, setIsMcqModalOpen] = useState(false);
+    const [isPassageModalOpen, setIsPassageModalOpen] = useState(false);
+    const [passages, setPassages] = useState<any[]>([]);
+    const [editingMcq, setEditingMcq] = useState<any>(null);
+    const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
+    const [mcqForm, setMcqForm] = useState({
+        question: '',
+        question_type: 'mcq_single',
+        difficulty: 'medium',
+        option_a: '',
+        option_b: '',
+        option_c: '',
+        option_d: '',
+        option_a_image_url: '',
+        option_b_image_url: '',
+        option_c_image_url: '',
+        option_d_image_url: '',
+        correct_option: 'A',
+        explanation: '',
+        question_image_url: '',
+        question_image_type: 'direct',
+        explanation_url: '',
+        explanation_image_type: 'direct',
+        university_id: null as number | null
+    });
+
+    // Bulk Logic
+    const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const optionImageInputRef = useRef<HTMLInputElement>(null);
+    const [uploadingOption, setUploadingOption] = useState<string | null>(null);
+
+    const createDefaultBlockQuestion = () => ({
+        question: '',
+        difficulty: 'medium',
+        option_a: '',
+        option_b: '',
+        option_c: '',
+        option_d: '',
+        correct_option: 'A',
+        explanation: '',
+        question_image_url: '',
+        question_image_type: 'direct',
+        explanation_url: '',
+        explanation_image_type: 'direct',
+    });
+
+    const [passageBlockForm, setPassageBlockForm] = useState({
+        title: '',
+        content: '',
+        questions: [createDefaultBlockQuestion()]
+    });
+
+    // Transfer State
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [transferTarget, setTransferTarget] = useState({
+        subjectId: '',
+        topicId: '',
+        subtopicId: ''
+    });
+    const [subjectsList, setSubjectsList] = useState<any[]>([]);
+    const [topicsList, setTopicsList] = useState<any[]>([]);
+    const [subtopicsList, setSubtopicsList] = useState<any[]>([]);
+    const [universitiesList, setUniversitiesList] = useState<any[]>([]);
+    const [isBulkTransfer, setIsBulkTransfer] = useState(false);
+    const [transferringMcqId, setTransferringMcqId] = useState<number | null>(null);
+    const [selectedUniversityFilter, setSelectedUniversityFilter] = useState<number | 'all' | 'universal'>('all');
+    const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
+
+    // Helpers
+    const normalizeRow = (row: any) => {
+        const normalized: any = {};
+        Object.keys(row).forEach(key => {
+            const normalizedKey = key.toLowerCase().replace(/\s+/g, '_').replace(/_+/g, '_').trim();
+            normalized[normalizedKey] = row[key];
+        });
+        return normalized;
+    };
+
+    const mapCorrectOption = (raw: any): string => {
+        if (raw === undefined || raw === null) return 'A';
+        const str = raw.toString().trim().toUpperCase();
+
+        // 1. Direct A/B/C/D
+        if (['A', 'B', 'C', 'D'].includes(str)) return str;
+
+        // 2. Numeric 1-4
+        if (str === '1') return 'A';
+        if (str === '2') return 'B';
+        if (str === '3') return 'C';
+        if (str === '4') return 'D';
+
+        // 3. Regex find first A/B/C/D in string (e.g., "Option A", "(B)")
+        const match = str.match(/[A-D]/);
+        if (match) return match[0];
+
+        return 'A'; // Default
+    };
+
+    // Rename State
+    const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+    const [editingHierarchyItem, setEditingHierarchyItem] = useState<HierarchyItem | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+
+    // Practice Settings State
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    const [practiceMcqLimit, setPracticeMcqLimit] = useState(20);
+
+    const convertDriveLink = (url: string) => {
+        if (!url) return '';
+        if (url.includes('drive.google.com')) {
+            const idMatch = url.match(/\/d\/(.+?)\//) || url.match(/id=(.+?)(&|$)/);
+            if (idMatch && idMatch[1]) {
+                return `https://lh3.googleusercontent.com/u/0/d/${idMatch[1]}=w1000`;
+            }
+        }
+        return url;
+    };
+
+    const loadHierarchy = async () => {
+        setGlobalLoading(true, 'Syncing Master Tree...');
+        try {
+            const res = await fetch('/api/mongo/mcqs?counts_only=true');
+            if (res.ok) {
+                const countsData = await res.json();
+                const subjects = countsData.subjects || [];
+                const topics = countsData.topics || [];
+                const subtopics = countsData.subtopics || [];
+                const universities = countsData.universities || [];
+                const allMcqs = countsData.allMcqs || [];
+
+                if (subjects) {
+                    setSubjectsList(subjects);
+                    setTopicsList(topics);
+                    setSubtopicsList(subtopics);
+                    
+                    const counts = countsData.counts || { subtopics: {}, topics: {}, universities: {} };
+
+                    // Populate universities with counts
+                    const processedUnis = universities.map((u: any) => {
+                        const count = counts.universities[u.id] || counts.universities[u.id.toString()] || 0;
+                        return { ...u, mcqCount: count };
+                    });
+                    setUniversitiesList(processedUnis);
+
+                    const tree: HierarchyItem[] = subjects.map((s: any) => {
+                        const subjectTopics = topics?.filter((t: any) => t.subject_id === s.id) || [];
+                        const processedTopics = subjectTopics.map((t: any): HierarchyItem => {
+                            const topicSubtopics = subtopics?.filter((st: any) => st.topic_id === t.id) || [];
+                            const processedSubtopics: HierarchyItem[] = topicSubtopics.map((st: any): HierarchyItem => {
+                                const count = counts.subtopics[st.id] || counts.subtopics[st.id.toString()] || 0;
+                                return {
+                                    id: `st-${st.id}`,
+                                    dbId: st.id,
+                                    type: 'subtopic',
+                                    title: st.name,
+                                    parentId: t.id,
+                                    mcqCount: count
+                                };
+                            });
+
+                            const totalTopicCount = counts.topics[t.id] || counts.topics[t.id.toString()] || 0;
+
+                            return {
+                                id: `t-${t.id}`,
+                                dbId: t.id,
+                                type: 'topic',
+                                title: t.name,
+                                parentId: s.id,
+                                expanded: false,
+                                mcqCount: totalTopicCount,
+                                children: processedSubtopics
+                            };
+                        });
+                        const subjectCount = processedTopics.reduce((sum: number, t: any) => sum + (t.mcqCount || 0), 0);
+                        return {
+                            id: `s-${s.id}`,
+                            dbId: s.id,
+                            type: 'subject',
+                            title: s.name,
+                            expanded: false,
+                            mcqCount: subjectCount,
+                            children: processedTopics
+                        };
+                    });
+                    setData(tree);
+                }
+            }
+        } catch (error) {
+            console.error("Error loading hierarchy:", error);
+            toast.error("Failed to load hierarchy data");
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const fetchPassages = async () => {
+        try {
+            const res = await fetch('/api/mongo/passages');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.passages) setPassages(data.passages);
+            }
+        } catch (error) {
+            console.error('Error fetching passages:', error);
+        }
+    };
+
+    const fetchUniversities = async () => {
+        try {
+            const res = await fetch('/api/mongo/universities');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.universities) setUniversitiesList(data.universities);
+            }
+        } catch (error) {
+            console.error('Error fetching universities:', error);
+        }
+    };
+
+    const fetchSettings = async () => {
+        try {
+            const data = await SystemSettingsService.getSettings({ ttlMs: 60000 });
+            if (data.settings && data.settings.practice_mcqs_limit !== undefined) {
+                setPracticeMcqLimit(data.settings.practice_mcqs_limit);
+            }
+        } catch (error) {
+            console.error('Core parameter fetch error:', error);
+        }
+    };
+
+    const handleSavePracticeSettings = async () => {
+        setGlobalLoading(true, 'Synchronizing Global Parameters...');
+        console.log('[QuestionBank] Syncing limit:', practiceMcqLimit);
+        try {
+            const res = await fetch('/api/mongo/admin/settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ practice_mcqs_limit: practiceMcqLimit })
+            });
+
+            if (!res.ok) throw new Error('Failed to update platform settings');
+
+            toast.success('Practice parameters synchronized successfully');
+            SystemSettingsService.clearCache();
+            await fetchSettings(); // Ensure state is truly consistent with DB
+            setIsSettingsModalOpen(false);
+        } catch (error: any) {
+            toast.error(error.message);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const currentUser = AuthService.getCurrentUser();
+        if (currentUser) setUser(currentUser);
+        loadHierarchy();
+        fetchPassages();
+        fetchUniversities();
+        fetchSettings();
+    }, []);
+
+    const loadQuestions = async (item: HierarchyItem, uniFilter?: number | 'all' | 'universal') => {
+        setGlobalLoading(true, 'Accessing Encrypted Archives...');
+        setSelectedQuestionIds([]);
+        const activeFilter = uniFilter !== undefined ? uniFilter : selectedUniversityFilter;
+        try {
+            let url = `/api/mongo/mcqs?`;
+            if (item.type === 'subtopic') {
+                url += `subtopic_id=${item.dbId}`;
+            } else if (item.type === 'topic') {
+                url += `topic_id=${item.dbId}`;
+            } else {
+                setQuestions([]);
+                return;
+            }
+
+            // Apply university filter
+            if (activeFilter === 'all') {
+                url += `&show_all=true`;
+            } else if (activeFilter === 'universal') {
+                // no university_id param => defaults to null/universal
+            } else {
+                url += `&university_id=${activeFilter}`;
+            }
+
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                setQuestions(data.mcqs || []);
+            }
+        } catch (error) {
+            console.error("Error loading questions:", error);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const handleOpenAddMcq = () => {
+        if (!selectedItem || selectedItem.type === 'subject') {
+            toast.error("Please select a topic or subtopic first");
+            return;
+        }
+        setEditingMcq(null);
+        setMcqForm({
+            question: '',
+            question_type: 'mcq_single',
+            difficulty: 'medium',
+            option_a: '',
+            option_b: '',
+            option_c: '',
+            option_d: '',
+            option_a_image_url: '',
+            option_b_image_url: '',
+            option_c_image_url: '',
+            option_d_image_url: '',
+            correct_option: 'A',
+            explanation: '',
+            question_image_url: '',
+            question_image_type: 'direct',
+            explanation_url: '',
+            explanation_image_type: 'direct',
+            university_id: null
+        });
+        setIsMcqModalOpen(true);
+    };
+
+    const handleOptionImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !uploadingOption) return;
+
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please select an image file.');
+            return;
+        }
+
+        setGlobalLoading(true, 'Optimizing Option Asset...');
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('bucket', 'mcqs');
+
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Upload failed');
+            }
+
+            const { publicUrl } = await res.json();
+            setMcqForm(prev => ({
+                ...prev,
+                [`option_${uploadingOption}_image_url`]: publicUrl
+            }));
+            toast.success(`Image added to Option ${uploadingOption.toUpperCase()}`);
+        } catch (error: any) {
+            toast.error('Error uploading image: ' + error.message);
+        } finally {
+            setGlobalLoading(false);
+            setUploadingOption(null);
+            if (e.target) e.target.value = '';
+        }
+    };
+
+    const handleOpenEditMcq = (q: any) => {
+        setEditingMcq(q);
+        setMcqForm({
+            question: q.question || '',
+            question_type: q.question_type || 'mcq_single',
+            difficulty: q.difficulty || 'medium',
+            option_a: q.option_a || '',
+            option_b: q.option_b || '',
+            option_c: q.option_c || '',
+            option_d: q.option_d || '',
+            option_a_image_url: q.option_a_image_url || '',
+            option_b_image_url: q.option_b_image_url || '',
+            option_c_image_url: q.option_c_image_url || '',
+            option_d_image_url: q.option_d_image_url || '',
+            correct_option: q.correct_option || 'A',
+            explanation: q.explanation || '',
+            question_image_url: q.question_image_url || '',
+            question_image_type: q.question_image_url?.includes('googleusercontent.com') ? 'drive' : 'direct',
+            explanation_url: q.explanation_url || '',
+            explanation_image_type: q.explanation_url?.includes('googleusercontent.com') ? 'drive' : 'direct',
+            university_id: q.university_id || null
+        });
+        setIsMcqModalOpen(true);
+    };
+
+    const handleSaveMcq = async () => {
+        if (mcqForm.question_type === 'passage' && !editingMcq) {
+            if (!passageBlockForm.content) {
+                toast.error("Passage content is required");
+                return;
+            }
+            if (passageBlockForm.questions.length === 0) {
+                toast.error("Add at least one question to the passage");
+                return;
+            }
+
+            try {
+                // 1. Create Passage
+                const passageRes = await fetch('/api/mongo/passages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: passageBlockForm.title,
+                        content: passageBlockForm.content
+                    })
+                });
+
+                if (!passageRes.ok) throw new Error('Failed to create passage');
+                const passageData = await passageRes.json();
+                const newPassageId = passageData.passage.id;
+
+                // 2. Create MCQs in Bulk
+                const questionsToInsert = passageBlockForm.questions.map(q => ({
+                    ...q,
+                    question_type: 'passage',
+                    passage_id: newPassageId,
+                    question_image_url: q.question_image_type === 'drive' ? convertDriveLink(q.question_image_url) : q.question_image_url,
+                    explanation_url: q.explanation_image_type === 'drive' ? convertDriveLink(q.explanation_url) : q.explanation_url,
+                    subtopic_id: selectedItem?.type === 'subtopic' ? selectedItem.dbId : null,
+                    topic_id: selectedItem?.type === 'topic' ? selectedItem.dbId : null,
+                    is_active: true
+                }));
+
+                const mcqRes = await fetch('/api/mongo/mcqs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(questionsToInsert)
+                });
+
+                if (!mcqRes.ok) {
+                    const errData = await mcqRes.json();
+                    throw new Error(errData.error || 'Failed to create passage questions');
+                }
+
+                toast.success("Passage and block created successfully");
+                setIsMcqModalOpen(false);
+                setPassages([passageData.passage, ...passages]);
+                if (selectedItem) loadQuestions(selectedItem);
+                loadHierarchy(); // Refresh counts
+
+                // Reset form
+                setPassageBlockForm({ title: '', content: '', questions: [createDefaultBlockQuestion()] });
+            } catch (err: any) {
+                console.error("Save Passage Block error:", err);
+                toast.error(err.message || "Failed to save passage block");
+            }
+            return;
+        }
+
+        if (!mcqForm.question || !mcqForm.option_a || !mcqForm.option_b) {
+            toast.error("Please fill in the question and at least two options");
+            return;
+        }
+
+        try {
+            const processedForm = {
+                ...mcqForm,
+                question_image_url: mcqForm.question_image_type === 'drive'
+                    ? convertDriveLink(mcqForm.question_image_url)
+                    : mcqForm.question_image_url,
+                explanation_url: mcqForm.explanation_image_type === 'drive'
+                    ? convertDriveLink(mcqForm.explanation_url)
+                    : mcqForm.explanation_url
+            };
+
+            // Remove internal UI state before saving
+            const { question_image_type, explanation_image_type, ...payload } = {
+                ...processedForm,
+                subtopic_id: selectedItem?.type === 'subtopic' ? selectedItem.dbId : null,
+                topic_id: selectedItem?.type === 'topic' ? selectedItem.dbId : null,
+                is_active: true
+            };
+
+            const method = editingMcq ? 'PATCH' : 'POST';
+            const res = await fetch('/api/mongo/mcqs', {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editingMcq ? { id: editingMcq.id, ...payload } : payload)
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || 'Failed to save question');
+            }
+
+            toast.success(editingMcq ? "Question updated successfully" : "Question added successfully");
+            setIsMcqModalOpen(false);
+            if (selectedItem) loadQuestions(selectedItem);
+            loadHierarchy(); // Refresh counts
+        } catch (err: any) {
+            console.error("Save MCQ error:", err);
+            toast.error(err.message || "Failed to save question");
+        }
+    };
+
+    const handleDownloadPassageTemplate = () => {
+        const templateData = [
+            {
+                'Question': 'Based on the passage, what is the primary cause of X?',
+                'Option A': 'Factor 1',
+                'Option B': 'Factor 2',
+                'Option C': 'Factor 3',
+                'Option D': 'Factor 4',
+                'Correct Option': 'A',
+                'Difficulty': 'medium',
+                'Explanation': 'The second paragraph explicitly states factor 1.'
+            }
+        ];
+        const ws = XLSX.utils.json_to_sheet(templateData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "PassageQuestionsTemplate");
+        XLSX.writeFile(wb, "aptivo_passage_questions_template.xlsx");
+    };
+
+    const handlePassageBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files?.[0]) return;
+        const file = e.target.files[0];
+        setGlobalLoading(true, 'Parsing Academic Data Stream...');
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const data: any[] = XLSX.utils.sheet_to_json(ws);
+
+                const newQuestions = data.map(row => {
+                    const normalized = normalizeRow(row);
+                    const correct_option = mapCorrectOption(
+                        normalized.correct_option || normalized.correct_answer || normalized.answer || normalized.correct
+                    );
+
+                    return {
+                        question: normalized.question || normalized.question_text || '',
+                        difficulty: (normalized.difficulty || 'medium').toLowerCase(),
+                        option_a: normalized.option_a || normalized.option1 || normalized.a || '',
+                        option_b: normalized.option_b || normalized.option2 || normalized.b || '',
+                        option_c: normalized.option_c || normalized.option3 || normalized.c || '',
+                        option_d: normalized.option_d || normalized.option4 || normalized.d || '',
+                        correct_option,
+                        explanation: normalized.explanation || normalized.reason || '',
+                        question_image_url: normalized.question_image || normalized.image_url || '',
+                        question_image_type: 'direct',
+                        explanation_url: '',
+                        explanation_image_type: 'direct',
+                    };
+                });
+
+                if (newQuestions.length > 0) {
+                    setPassageBlockForm(prev => ({
+                        ...prev,
+                        questions: [...prev.questions, ...newQuestions]
+                    }));
+                    toast.success(`Injected ${newQuestions.length} questions into the passage block.`);
+                }
+            } catch (err: any) {
+                toast.error(err.message);
+            } finally {
+                setGlobalLoading(false);
+                if (passageFileInputRef.current) passageFileInputRef.current.value = '';
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const handleDeleteMcq = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this MCQ?')) return;
+        setGlobalLoading(true, 'Removing Data Node...');
+        try {
+            const res = await fetch(`/api/mongo/mcqs?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                toast.success('MCQ Deleted');
+                loadQuestions(selectedItem!);
+                loadHierarchy();
+            }
+        } catch (error) {
+            toast.error('Failed to delete MCQ');
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const handleBulkTransfer = async () => {
+        if (!transferTarget.topicId) {
+            toast.error("Please select at least a destination Topic");
+            return;
+        }
+
+        const idsToMove = isBulkTransfer ? selectedQuestionIds : [transferringMcqId!];
+
+        setGlobalLoading(true, 'Executing Structural Migration...');
+        try {
+            const res = await fetch('/api/mongo/mcqs', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ids: idsToMove,
+                    topic_id: parseInt(transferTarget.topicId),
+                    subtopic_id: transferTarget.subtopicId ? parseInt(transferTarget.subtopicId) : null
+                })
+            });
+
+            if (res.ok) {
+                toast.success(`Successfully migrated ${idsToMove.length} items`);
+                setIsTransferModalOpen(false);
+                setSelectedQuestionIds([]);
+                loadQuestions(selectedItem!);
+                loadHierarchy();
+            } else {
+                const err = await res.json();
+                throw new Error(err.error || 'Migration failed');
+            }
+        } catch (error: any) {
+            toast.error(error.message);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const handleSelectQuestion = (id: number) => {
+        setSelectedQuestionIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = () => {
+        if (selectedQuestionIds.length === questions.length && questions.length > 0) {
+            setSelectedQuestionIds([]);
+        } else {
+            setSelectedQuestionIds(questions.map(q => q.id));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedQuestionIds.length === 0) return;
+        if (!confirm(`CRITICAL ACTION: Are you sure you want to MASS DELETE ${selectedQuestionIds.length} questions? This will permanently erase them from the platform registry.`)) return;
+
+        setGlobalLoading(true, 'Initiating Multi-Entity Deletion...');
+        try {
+            const res = await fetch(`/api/mongo/mcqs?ids=${selectedQuestionIds.join(',')}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || 'Bulk delete failed');
+            }
+
+            toast.success(`Eliminated ${selectedQuestionIds.length} questions from registry`);
+            setSelectedQuestionIds([]);
+            if (selectedItem) loadQuestions(selectedItem);
+            loadHierarchy(); // Refresh counts
+        } catch (err: any) {
+            console.error("Bulk Delete MCQ error:", err);
+            toast.error(err.message || "Failed to delete questions");
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files?.[0] || !selectedItem) return;
+        const file = e.target.files[0];
+        setGlobalLoading(true, 'Ingesting Academic Data Stream...');
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const rawData: any[] = XLSX.utils.sheet_to_json(ws);
+
+                // Auto-map based on selected node
+                const questions_to_insert = rawData.map(row => {
+                    const normalized = normalizeRow(row);
+                    const correct_option = mapCorrectOption(
+                        normalized.correct_option || normalized.correct_answer || normalized.answer || normalized.correct
+                    );
+
+                    return {
+                        question: normalized.question || normalized.question_text || '',
+                        difficulty: (normalized.difficulty || 'medium').toLowerCase(),
+                        question_type: normalized.question_type || 'mcq_single',
+                        option_a: (normalized.option_a || normalized.option1 || normalized.a || '').toString(),
+                        option_b: (normalized.option_b || normalized.option2 || normalized.b || '').toString(),
+                        option_c: (normalized.option_c || normalized.option3 || normalized.c || '').toString(),
+                        option_d: (normalized.option_d || normalized.option4 || normalized.d || '').toString(),
+                        correct_option,
+                        explanation: normalized.explanation || normalized.reason || '',
+                        topic_id: selectedItem.type === 'topic' ? selectedItem.dbId : (selectedItem.type === 'subtopic' ? selectedItem.parentId : null),
+                        subtopic_id: selectedItem.type === 'subtopic' ? selectedItem.dbId : null,
+                        subject_id: selectedItem.type === 'subject' ? selectedItem.dbId : null,
+                        marks: normalized.marks || 1,
+                        times_attempted: 0,
+                        times_correct: 0
+                    };
+                });
+
+                const res = await fetch('/api/mongo/mcqs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(questions_to_insert)
+                });
+
+                if (!res.ok) throw new Error('Bulk ingestion failed');
+
+                toast.success(`Successfully ingested ${questions_to_insert.length} questions`);
+                loadQuestions(selectedItem);
+                setIsBulkModalOpen(false);
+            } catch (err: any) {
+                toast.error(err.message);
+            } finally {
+                setGlobalLoading(false);
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const handleSaveHierarchyName = async () => {
+        if (!renameValue.trim() || !editingHierarchyItem) return;
+
+        setGlobalLoading(true, 'Updating Master Registry...');
+        try {
+            const res = await fetch('/api/mongo/content', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: editingHierarchyItem.dbId,
+                    type: editingHierarchyItem.type,
+                    name: renameValue.trim()
+                })
+            });
+
+            if (res.ok) {
+                toast.success('Identity updated successfully');
+                setIsRenameModalOpen(false);
+                loadHierarchy(); // Refresh the sidebar
+                if (selectedItem?.id === editingHierarchyItem.id) {
+                    setSelectedItem({ ...selectedItem, title: renameValue.trim() });
+                }
+            } else {
+                const err = await res.json();
+                throw new Error(err.error || 'Update failed');
+            }
+        } catch (error: any) {
+            toast.error(error.message);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+
+    const toggleExpand = (id: string, items: HierarchyItem[]): HierarchyItem[] => {
+        return items.map(item => {
+            if (item.id === id) {
+                return { ...item, expanded: !item.expanded };
+            }
+            if (item.children) {
+                return { ...item, children: toggleExpand(id, item.children) };
+            }
+            return item;
+        });
+    };
+
+    const handleExpandCallback = (id: string) => {
+        setData(toggleExpand(id, data));
+    };
+
+    const renderTree = (items: HierarchyItem[], level = 0) => {
+        const filtered = items.filter(item =>
+            item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (item.children && item.children.some(child => child.title.toLowerCase().includes(searchQuery.toLowerCase())))
+        );
+
+        return filtered.map((item) => (
+            <div key={item.id} className="select-none">
+                <div
+                    className={`
+                        group flex items-center gap-3 py-2 px-4 border-b border-teal-50/10 hover:bg-slate-50 transition-all cursor-pointer
+                        ${selectedItem?.id === item.id ? 'bg-slate-100 border-l-4 border-l-indigo-600' : 'bg-transparent border-l-4 border-l-transparent'}
+                    `}
+                    style={{ paddingLeft: `${level * 16 + 16}px` }}
+                    onClick={() => {
+                        if (item.type === 'subject' || item.type === 'topic') {
+                            handleExpandCallback(item.id);
+                        }
+
+                        // Select if topic or subtopic
+                        if (item.type === 'topic' || item.type === 'subtopic') {
+                            setSelectedItem(item);
+                            loadQuestions(item);
+                        }
+                    }}
+                >
+                    {/* Expand Toggle */}
+                    <div className={`p-1 rounded text-slate-500 ${!item.children || item.children.length === 0 ? 'invisible' : ''}`}>
+                        {item.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </div>
+
+                    {/* Icon */}
+                    <div className={`
+                        w-6 h-6 rounded flex items-center justify-center
+                        ${item.type === 'subject' ? 'bg-teal-500/10 text-teal-400' :
+                            item.type === 'topic' ? 'bg-emerald-500/10 text-emerald-400' :
+                                'bg-slate-500/10 text-slate-400'}
+                    `}>
+                        {item.type === 'subject' && <Layers className="w-3 h-3" />}
+                        {item.type === 'topic' && <Hash className="w-3 h-3" />}
+                        {item.type === 'subtopic' && <TargetIcon className="w-3 h-3" />}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 flex items-center justify-between group/title">
+                        <div className={`text-xs font-bold truncate ${selectedItem?.id === item.id ? 'text-slate-900' : 'text-slate-500'}`}>
+                            {item.title}
+                        </div>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingHierarchyItem(item);
+                                setRenameValue(item.title);
+                                setIsRenameModalOpen(true);
+                            }}
+                            className="opacity-0 group-hover/title:opacity-100 p-1 hover:bg-white rounded transition-all text-indigo-600 ml-2"
+                            title="Rename"
+                        >
+                            <Pencil className="w-2.5 h-2.5" />
+                        </button>
+                    </div>
+
+                    {item.mcqCount !== undefined && (
+                        <div className={`text-[9px] font-black px-1.5 py-0.5 rounded min-w-[20px] text-center shadow-sm ${item.mcqCount > 0 ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                            {item.mcqCount}
+                        </div>
+                    )}
+                </div>
+
+                {/* Recursively render children */}
+                {item.expanded && item.children && (
+                    <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                        {renderTree(item.children, level + 1)}
+                    </div>
+                )}
+            </div>
+        ));
+    };
+
+    const { isSidebarCollapsed } = useUI();
+
+    return (
+        <div className="min-h-screen bg-gray-50 flex font-sans">
+            <Sidebar userRole="super_admin" />
+            <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${isSidebarCollapsed ? 'lg:ml-28' : 'lg:ml-80'}`}>
+                <Header userName={user?.full_name || 'Super Admin'} userEmail={user?.email} />
+
+                <main className="flex-1 pt-28 lg:pt-24 pb-12 px-4 sm:px-8 flex flex-col min-h-0">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8">
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Question Bank <span className="text-teal-600">Master</span></h1>
+                            <p className="text-sm sm:text-base text-slate-500 font-medium">Platform-wide question repository and verification hub.</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={handleOpenAddMcq}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white font-black uppercase tracking-wider text-[11px] rounded-2xl hover:bg-teal-600 transition-all shadow-xl active:scale-95"
+                            >
+                                <Plus className="w-4 h-4" />
+                                New Question
+                            </button>
+                            <button
+                                onClick={() => setIsSettingsModalOpen(true)}
+                                className="p-3 bg-white border border-gray-200 text-slate-400 hover:text-indigo-600 rounded-2xl transition-all shadow-sm active:scale-95"
+                                title="Practice Parameters"
+                            >
+                                <Settings className="w-5 h-5 transition-transform hover:rotate-90 duration-500" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col lg:flex-row gap-8 min-h-0">
+                        {/* Left: Hierarchy Sidebar */}
+                        <div className="w-full lg:w-80 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden lg:sticky lg:top-28 lg:h-[calc(100vh-140px)]">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex flex-col gap-3">
+                                <button 
+                                    onClick={handleOpenAddMcq}
+                                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border-2 border-dashed border-slate-200 text-slate-500 hover:text-teal-600 hover:border-teal-500 rounded-xl transition-all group"
+                                >
+                                    <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">Add New MCQ</span>
+                                </button>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Filter hierarchy..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all placeholder:text-slate-300"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                {loading ? null : data.length > 0 ? (
+                                    renderTree(data)
+                                ) : (
+                                    <div className="p-8 text-center text-slate-400">
+                                        <TargetIcon className="w-8 h-8 mx-auto mb-2 opacity-10" />
+                                        <p className="text-xs font-bold uppercase tracking-widest">Repository Empty</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        {/* Right: Modern Question Viewer */}
+                        <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+                            {selectedItem ? (
+                                <>
+                                    {/* Subtopic Header */}
+                                    <div className="p-6 border-b border-gray-100 bg-white flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
+                                        <div className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-teal-600 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-100">
+                                                    Master Data
+                                                </span>
+                                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                                                    {questions.length} QC Verified
+                                                </span>
+                                            </div>
+                                            <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedItem?.title}</h2>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {/* University View Filter */}
+                                            <div className="flex items-center gap-3 bg-indigo-50/50 p-2 rounded-2xl border border-indigo-100/50 min-w-[200px]">
+                                                <div className="flex items-center gap-2 px-3 border-r border-indigo-200 shrink-0">
+                                                    <TargetIcon className="w-4 h-4 text-indigo-600" />
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-400">Context</span>
+                                                </div>
+                                            <select
+                                                    value={selectedUniversityFilter}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        const newFilter = val === 'all' || val === 'universal' ? val : parseInt(val) as number | 'all' | 'universal';
+                                                        setSelectedUniversityFilter(newFilter as any);
+                                                        if (selectedItem) loadQuestions(selectedItem, newFilter as any);
+                                                    }}
+                                                    className="w-full bg-transparent text-[11px] font-black text-indigo-900 py-1 pl-1 pr-6 outline-none cursor-pointer hover:text-indigo-600 transition-colors"
+                                                >
+                                                    <option value="all">Everywhere</option>
+                                                    <option value="universal">Universal Only</option>
+                                                    <optgroup label="University Specific">
+                                                        {universitiesList.map((uni: any) => (
+                                                            <option key={uni.id} value={uni.id}>
+                                                                {uni.name} ({uni.mcqCount || 0})
+                                                            </option>
+                                                        ))}
+                                                    </optgroup>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Toolbar Area */}
+                                    <div className="px-6 py-4 border-b border-slate-50 flex flex-wrap items-center justify-between gap-4 bg-slate-50/30">
+                                        <div className="flex items-center gap-3">
+                                            {questions.length > 0 && (
+                                                <div className="flex items-center gap-3 py-1.5 px-3 bg-slate-900 rounded-xl border border-slate-700 shadow-md">
+                                                    <label className="flex items-center gap-3 cursor-pointer group/check px-2 border-r border-slate-700 mr-2">
+                                                        <div className="relative flex items-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="peer h-5 w-5 cursor-pointer appearance-none rounded-lg border-2 border-slate-600 bg-slate-800 transition-all checked:bg-teal-500 checked:border-teal-500"
+                                                                checked={selectedQuestionIds.length === questions.length && questions.length > 0}
+                                                                onChange={handleSelectAll}
+                                                            />
+                                                            <CheckCircle2 className="pointer-events-none absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 transition-opacity peer-checked:opacity-100" />
+                                                        </div>
+                                                        <span className="text-[10px] font-black text-teal-400 group-hover:text-white uppercase tracking-widest transition-colors">Select All</span>
+                                                    </label>
+
+                                                    {selectedQuestionIds.length > 0 ? (
+                                                        <div className="flex items-center gap-4 py-1">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setIsBulkTransfer(true);
+                                                                    setIsTransferModalOpen(true);
+                                                                }}
+                                                                className="flex items-center gap-1.5 text-indigo-400 hover:text-white transition-colors"
+                                                            >
+                                                                <ArrowRightLeft className="w-3.5 h-3.5" />
+                                                                <span className="text-[10px] font-black uppercase tracking-wider">Transfer ({selectedQuestionIds.length})</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={handleBulkDelete}
+                                                                className="flex items-center gap-1.5 text-rose-400 hover:text-white transition-colors"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                <span className="text-[10px] font-black uppercase tracking-wider">Delete ({selectedQuestionIds.length})</span>
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => setIsBulkModalOpen(true)}
+                                                            className="flex items-center gap-2 px-3 py-1 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-all"
+                                                        >
+                                                            <UploadCloud className="w-4 h-4" />
+                                                            <span className="text-[10px] font-black uppercase tracking-widest">Bulk Injest</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-gray-200 shadow-sm">
+                                                <Filter className="w-4 h-4 text-slate-400" />
+                                                <select
+                                                    value={difficultyFilter}
+                                                    onChange={(e) => setDifficultyFilter(e.target.value)}
+                                                    className="bg-transparent border-none text-[10px] font-black text-slate-600 outline-none uppercase tracking-wider cursor-pointer"
+                                                >
+                                                    <option value="all">All Difficulty</option>
+                                                    <option value="easy">Easy</option>
+                                                    <option value="medium">Medium</option>
+                                                    <option value="hard">Hard</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 p-6 space-y-6 bg-slate-50/50 custom-scrollbar">
+                                        {questionsLoading ? null : (() => {
+                                            const filtered = difficultyFilter === 'all' ? questions : questions.filter(q => q.difficulty === difficultyFilter);
+                                            return filtered.length > 0 ? (
+                                            filtered.map((q, idx) => {
+                                                const showPassageHeader = q.passage_id && (idx === 0 || questions[idx - 1].passage_id !== q.passage_id);
+                                                const passage = showPassageHeader ? passages.find(p => p.id === q.passage_id) : null;
+
+                                                return (
+                                                    <React.Fragment key={`frag-${q.id}`}>
+                                                        {showPassageHeader && passage && (
+                                                            <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-xl mb-8 border border-slate-800">
+                                                                <h3 className="text-xl font-black text-teal-400 mb-4 tracking-tight flex items-center gap-3">
+                                                                    <FileText className="w-5 h-5" />
+                                                                    {passage.title || `Passage #${passage.id}`}
+                                                                </h3>
+                                                                <div className="prose prose-invert max-w-none text-slate-300">
+                                                                    <MarkdownRenderer content={passage.content} />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <div className={`bg-white p-6 rounded-xl border transition-all group relative overflow-hidden ${selectedQuestionIds.includes(q.id) ? 'border-teal-500 ring-1 ring-teal-500 shadow-lg shadow-teal-500/5' : 'border-gray-100 shadow-sm hover:shadow-xl hover:shadow-teal-500/5'} ${q.passage_id ? 'ml-8 border-l-4 border-l-slate-800' : ''}`}>
+                                                            <div className="absolute top-4 left-4 z-10">
+                                                                <div className="relative flex items-center">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedQuestionIds.includes(q.id)}
+                                                                        onChange={() => handleSelectQuestion(q.id)}
+                                                                        className="peer h-6 w-6 cursor-pointer appearance-none rounded-xl border-2 border-slate-200 bg-white transition-all checked:bg-teal-600 checked:border-teal-600 hover:border-teal-300"
+                                                                    />
+                                                                    <CheckCircle2 className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 transition-opacity peer-checked:opacity-100" />
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="pl-10">
+                                                                <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <div className="flex gap-2">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setTransferringMcqId(q.id);
+                                                                                setIsBulkTransfer(false);
+                                                                                setIsTransferModalOpen(true);
+                                                                            }}
+                                                                            className="text-slate-400 hover:text-indigo-600 p-1 bg-slate-50 rounded-lg border border-gray-100 transition-colors"
+                                                                            title="Transfer Question"
+                                                                        >
+                                                                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleOpenEditMcq(q)}
+                                                                            className="text-slate-400 hover:text-teal-600 px-3 py-1 text-[10px] font-black uppercase tracking-widest bg-slate-50 rounded-lg border border-gray-100 transition-colors"
+                                                                        >
+                                                                            Edit Entry
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteMcq(q.id)}
+                                                                            className="text-slate-400 hover:text-rose-600 p-1 bg-slate-50 rounded-lg border border-gray-100 transition-colors"
+                                                                            title="Delete Question"
+                                                                        >
+                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex justify-between items-start mb-4">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shadow-lg shadow-slate-900/10">
+                                                                            {idx + 1}
+                                                                        </span>
+                                                                        <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-[0.1em] ${q.difficulty === 'easy' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            q.difficulty === 'medium' ? 'bg-amber-100 text-amber-700' :
+                                                                                'bg-rose-100 text-rose-700'
+                                                                            }`}>
+                                                                            {q.difficulty}
+                                                                        </span>
+                                                                        <span className="px-2.5 py-1 bg-teal-50 text-teal-600 rounded-lg text-[9px] font-black uppercase tracking-[0.1em]">
+                                                                            {q.question_type?.replace('_', ' ') || 'MCQ Single'}
+                                                                        </span>
+                                                                        {q.university_id && (
+                                                                            <span className="px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-[0.1em] border border-indigo-100">
+                                                                                {universitiesList.find(u => u.id === q.university_id)?.name || 'University Exclusive'}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-6 pr-12">
+                                                                        <div className="flex flex-col items-end">
+                                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Attempts</span>
+                                                                            <span className="text-sm font-black text-slate-900">{q.times_attempted || 0}</span>
+                                                                        </div>
+                                                                        <div className="flex flex-col items-end">
+                                                                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Platform Accuracy</span>
+                                                                            <span className="text-sm font-black text-emerald-600">{((q.times_correct || 0) / (q.times_attempted || 1) * 100).toFixed(1)}%</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="text-slate-800 text-lg font-black mb-8 leading-tight">
+                                                                    <MarkdownRenderer content={q.question} />
+                                                                </div>
+
+                                                                <div className="grid grid-cols-2 gap-4 mb-8">
+                                                                    {['A', 'B', 'C', 'D'].map((opt) => (
+                                                                        <div
+                                                                            key={opt}
+                                                                            className={`px-5 py-4 rounded-2xl border-2 transition-all flex flex-col gap-3 ${q.correct_option === opt
+                                                                                ? 'border-emerald-500 bg-emerald-50/50 text-emerald-900 shadow-sm'
+                                                                                : 'border-slate-100 bg-slate-50/50 text-slate-500'
+                                                                                }`}
+                                                                        >
+                                                                            <div className="flex items-center gap-4">
+                                                                                <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black ${q.correct_option === opt ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-200 text-slate-500'
+                                                                                    }`}>
+                                                                                    {opt}
+                                                                                </span>
+                                                                                <div className="text-sm font-bold">
+                                                                                    <MarkdownRenderer content={q[`option_${opt.toLowerCase()}`]} />
+                                                                                </div>
+                                                                            </div>
+                                                                            {q[`option_${opt.toLowerCase()}_image_url`] && (
+                                                                                <div className="w-full h-32 rounded-xl overflow-hidden border border-emerald-100/50">
+                                                                                    <img 
+                                                                                        src={q[`option_${opt.toLowerCase()}_image_url`]} 
+                                                                                        className="w-full h-full object-cover" 
+                                                                                        alt={`Option ${opt}`} 
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+
+                                                                {q.explanation && (
+                                                                    <div className="p-5 bg-teal-50/30 rounded-2xl border border-teal-50">
+                                                                        <div className="flex items-center gap-2 text-teal-700 text-[10px] font-black uppercase tracking-widest mb-2">
+                                                                            <HelpCircle className="w-4 h-4" />
+                                                                            Academic Rationale
+                                                                        </div>
+                                                                        <div className="text-sm text-teal-900/80 font-medium leading-relaxed italic">
+                                                                            <MarkdownRenderer content={q.explanation} />
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </React.Fragment>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="h-full flex flex-col items-center justify-center text-center p-20">
+                                                <div className="w-24 h-24 bg-white rounded-full shadow-2xl shadow-teal-500/10 flex items-center justify-center mb-8">
+                                                    <TargetIcon className="w-12 h-12 text-teal-100" />
+                                                </div>
+                                                <h3 className="text-2xl font-black text-slate-900 mb-2">Virgin Territory</h3>
+                                                <p className="text-slate-500 max-w-sm mb-8">
+                                                    {difficultyFilter !== 'all' ? `No ${difficultyFilter} questions found. Try a different filter.` : 'This subtopic contains no validated questions. Use the \'New Question\' button or Excel Uploader to initialize the bank.'}
+                                                </p>
+                                                <button className="px-8 py-3 bg-slate-900 text-white font-black rounded-2xl hover:scale-105 transition-transform shadow-xl shadow-slate-900/20">
+                                                    Add First MCQ
+                                                </button>
+                                            </div>
+                                        );
+                                        })()}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-white">
+                                    <div className="w-32 h-32 bg-teal-50 rounded-full flex items-center justify-center mb-10 animate-pulse">
+                                        <TargetIcon className="w-16 h-16 text-teal-600 opacity-10" />
+                                    </div>
+                                    <h3 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Select a Data Node</h3>
+                                    <p className="text-slate-500 max-w-md font-medium leading-relaxed">
+                                        The master question bank allows platform-wide auditing. Select any Subject → Topic → Subtopic from the global tree to explore and modify the platform's core educational data.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* MCQ Modal */}
+                    {isMcqModalOpen && (
+                        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white">
+                                    <div>
+                                        <h3 className="text-xl font-black text-slate-900">{editingMcq ? 'Edit MCQ' : 'Create New MCQ'}</h3>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{selectedItem?.title}</p>
+                                    </div>
+                                    <button onClick={() => setIsMcqModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
+                                    {/* Question Type Selection */}
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">System Blueprint Type</label>
+                                        <div className="relative group">
+                                            <Settings className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-600 z-10" />
+                                            <select
+                                                value={mcqForm.question_type}
+                                                onChange={(e) => setMcqForm({ ...mcqForm, question_type: e.target.value })}
+                                                className="w-full pl-12 pr-10 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-teal-500/10 transition-all"
+                                            >
+                                                <option value="mcq_single">MCQ Single Choice</option>
+                                                <option value="mcq_multiple">MCQ Multiple Choice</option>
+                                                <option value="true_false">True / False</option>
+                                                <option value="numerical">Numerical Entry</option>
+                                                <option value="essay">Essay / Free Text</option>
+                                                <option value="short_answer">Short Answer</option>
+                                                <option value="fill_blank">Fill in the Blanks</option>
+                                                <option value="matching">Match the Following</option>
+                                                <option value="ordering">Sequence / Ordering</option>
+                                                <option value="hotspot">Image Hotspot</option>
+                                                <option value="case_study">Case Study Analysis</option>
+                                                <option value="passage">Passage-Based Block</option>
+                                            </select>
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-teal-600 transition-colors">
+                                                <ChevronDown className="w-4 h-4" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {mcqForm.question_type === 'passage' && !editingMcq ? (
+                                        <div className="space-y-6">
+                                            {/* Passage Heading & Content */}
+                                            <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-6">
+                                                <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                                                    <FileText className="w-4 h-4 text-teal-600" />
+                                                    Passage Details
+                                                </h4>
+                                                <div className="space-y-2">
+                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Heading / Title</label>
+                                                    <input
+                                                        value={passageBlockForm.title}
+                                                        onChange={e => setPassageBlockForm({ ...passageBlockForm, title: e.target.value })}
+                                                        placeholder="e.g. Reading Comprehension - The Solar System"
+                                                        className="w-full px-5 py-3 bg-white border border-gray-100 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Passage Content</label>
+                                                    <RichTextEditor
+                                                        value={passageBlockForm.content}
+                                                        onChange={val => setPassageBlockForm({ ...passageBlockForm, content: val })}
+                                                        placeholder="Enter the full passage here..."
+                                                        height="h-48"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Passage Questions */}
+                                            <div className="space-y-6">
+                                                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 sticky top-0 z-10 shadow-sm">
+                                                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                                                        <Layers className="w-4 h-4 text-teal-600" />
+                                                        Questions in Block ({passageBlockForm.questions.length})
+                                                    </h4>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={handleDownloadPassageTemplate}
+                                                            className="px-3 py-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg font-bold text-[9px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
+                                                        >
+                                                            <UploadCloud className="w-3 h-3" /> Template
+                                                        </button>
+                                                        <button
+                                                            onClick={() => passageFileInputRef.current?.click()}
+                                                            className="px-3 py-1.5 bg-white border border-slate-200 text-teal-600 rounded-lg font-black text-[9px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
+                                                        >
+                                                            <Plus className="w-3 h-3" /> Bulk Upload
+                                                        </button>
+                                                        <input
+                                                            type="file"
+                                                            ref={passageFileInputRef}
+                                                            onChange={handlePassageBulkUpload}
+                                                            className="hidden"
+                                                            accept=".xlsx, .xls, .csv"
+                                                        />
+                                                        <button
+                                                            onClick={() => setPassageBlockForm({
+                                                                ...passageBlockForm,
+                                                                questions: [...passageBlockForm.questions, createDefaultBlockQuestion()]
+                                                            })}
+                                                            className="px-4 py-2 bg-teal-50 text-teal-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-teal-100 transition-all flex items-center gap-2 shadow-sm"
+                                                        >
+                                                            <Plus className="w-3.5 h-3.5" />
+                                                            Add Question
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {passageBlockForm.questions.map((q, idx) => (
+                                                    <div key={idx} className="p-6 bg-white border border-slate-200 rounded-3xl space-y-6 relative group shadow-sm hover:border-teal-300 transition-colors">
+                                                        {passageBlockForm.questions.length > 1 && (
+                                                            <div className="absolute top-4 right-4 z-10">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const newQs = [...passageBlockForm.questions];
+                                                                        newQs.splice(idx, 1);
+                                                                        setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                    }}
+                                                                    className="p-2 text-rose-400 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 inline-block px-3 py-1 rounded-full">Question #{idx + 1}</h5>
+
+                                                        <div className="space-y-2">
+                                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Question Prompt</label>
+                                                            <RichTextEditor
+                                                                value={q.question}
+                                                                onChange={(val) => {
+                                                                    const newQs = [...passageBlockForm.questions];
+                                                                    newQs[idx].question = val;
+                                                                    setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                }}
+                                                                placeholder="Enter question..."
+                                                                height="h-32"
+                                                            />
+                                                        </div>
+
+                                                        {/* Diff & Correct */}
+                                                        <div className="grid grid-cols-2 gap-6">
+                                                            <div className="space-y-2">
+                                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Difficulty</label>
+                                                                <select
+                                                                    value={q.difficulty}
+                                                                    onChange={(e) => {
+                                                                        const newQs = [...passageBlockForm.questions];
+                                                                        newQs[idx].difficulty = e.target.value;
+                                                                        setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                    }}
+                                                                    className="w-full px-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                                                                >
+                                                                    <option value="easy">Easy</option>
+                                                                    <option value="medium">Medium</option>
+                                                                    <option value="hard">Hard</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Correct Option</label>
+                                                                <div className="flex bg-slate-100 p-1 rounded-xl">
+                                                                    {['A', 'B', 'C', 'D'].map(opt => (
+                                                                        <button
+                                                                            key={opt}
+                                                                            onClick={() => {
+                                                                                const newQs = [...passageBlockForm.questions];
+                                                                                newQs[idx].correct_option = opt as any;
+                                                                                setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                            }}
+                                                                            className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${q.correct_option === opt ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                                                                        >
+                                                                            {opt}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Options */}
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            {['a', 'b', 'c', 'd'].map(opt => (
+                                                                <div key={opt} className="relative">
+                                                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300 uppercase">{opt}</span>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={(q as any)[`option_${opt}`]}
+                                                                        onChange={(e) => {
+                                                                            const newQs = [...passageBlockForm.questions];
+                                                                            (newQs[idx] as any)[`option_${opt}`] = e.target.value;
+                                                                            setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                        }}
+                                                                        className="w-full pl-10 pr-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold focus:ring-2 focus:ring-teal-500/20 outline-none"
+                                                                        placeholder={`Option ${opt.toUpperCase()}`}
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Academic Rationale</label>
+                                                            <input
+                                                                type="text"
+                                                                value={q.explanation}
+                                                                onChange={(e) => {
+                                                                    const newQs = [...passageBlockForm.questions];
+                                                                    newQs[idx].explanation = e.target.value;
+                                                                    setPassageBlockForm({ ...passageBlockForm, questions: newQs });
+                                                                }}
+                                                                placeholder="Short reason for the correct option..."
+                                                                className="w-full px-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-medium focus:ring-2 focus:ring-teal-500/20 outline-none"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* Question Text */}
+                                            <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Question Prompt</label>
+                                                <RichTextEditor
+                                                    value={mcqForm.question}
+                                                    onChange={(val) => setMcqForm({ ...mcqForm, question: val })}
+                                                    placeholder="Enter the question text (Markdown & LaTeX supported)..."
+                                                    height="h-64"
+                                                />
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-6">
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Difficulty</label>
+                                                    <select
+                                                        value={mcqForm.difficulty}
+                                                        onChange={(e) => setMcqForm({ ...mcqForm, difficulty: e.target.value })}
+                                                        className="w-full px-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none"
+                                                    >
+                                                        <option value="easy">Easy</option>
+                                                        <option value="medium">Medium</option>
+                                                        <option value="hard">Hard</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Correct Option</label>
+                                                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                                                        {['A', 'B', 'C', 'D'].map(opt => (
+                                                            <button
+                                                                key={opt}
+                                                                onClick={() => setMcqForm({ ...mcqForm, correct_option: opt as any })}
+                                                                className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${mcqForm.correct_option === opt ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                                                            >
+                                                                {opt}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+
+                                            {/* University Tagging */}
+                                            <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">University Association (Optional)</label>
+                                                <div className="relative group">
+                                                    <TargetIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 z-10" />
+                                                    <select
+                                                        value={mcqForm.university_id || ''}
+                                                        onChange={(e) => setMcqForm({ ...mcqForm, university_id: e.target.value ? parseInt(e.target.value) : null })}
+                                                        className="w-full pl-12 pr-10 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-indigo-500/10 transition-all"
+                                                    >
+                                                        <option value="">Universal (Available for all)</option>
+                                                        {universitiesList.map((uni: any) => (
+                                                            <option key={uni.id} value={uni.id}>
+                                                                {uni.name} ({uni.mcqCount || 0})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-indigo-600 transition-colors">
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Options */}
+                                            <div className="space-y-4">
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Answer Options</label>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    {['a', 'b', 'c', 'd'].map(opt => (
+                                                        <div key={opt} className="space-y-2">
+                                                            <div className="relative">
+                                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300 uppercase">{opt}</span>
+                                                                <input
+                                                                    type="text"
+                                                                    value={(mcqForm as any)[`option_${opt}`]}
+                                                                    onChange={(e) => setMcqForm({ ...mcqForm, [`option_${opt}`]: e.target.value })}
+                                                                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold focus:ring-2 focus:ring-teal-500/20 outline-none"
+                                                                    placeholder={`Option ${opt.toUpperCase()}`}
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setUploadingOption(opt);
+                                                                        optionImageInputRef.current?.click();
+                                                                    }}
+                                                                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-all ${ (mcqForm as any)[`option_${opt}_image_url`] ? 'bg-teal-100 text-teal-600' : 'bg-white text-slate-400 hover:text-teal-600 border border-slate-100' }`}
+                                                                    title="Add Image to Option"
+                                                                >
+                                                                    <ImageIcon className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                            {(mcqForm as any)[`option_${opt}_image_url`] && (
+                                                                <div className="relative group/optimg w-24 h-16 rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
+                                                                    <img 
+                                                                        src={(mcqForm as any)[`option_${opt}_image_url`]} 
+                                                                        className="w-full h-full object-cover" 
+                                                                        alt={`Option ${opt} preview`} 
+                                                                    />
+                                                                    <button 
+                                                                        onClick={() => setMcqForm({ ...mcqForm, [`option_${opt}_image_url`]: '' })}
+                                                                        className="absolute inset-0 bg-rose-500/80 text-white flex items-center justify-center opacity-0 group-hover/optimg:opacity-100 transition-opacity"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <input
+                                                    type="file"
+                                                    ref={optionImageInputRef}
+                                                    onChange={handleOptionImageUpload}
+                                                    className="hidden"
+                                                    accept="image/*"
+                                                />
+                                            </div>
+
+                                            {/* Question Image */}
+                                            <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Question image (Optional)</label>
+                                                <div className="flex bg-slate-50 p-1 rounded-xl border border-gray-100 mb-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMcqForm({ ...mcqForm, question_image_type: 'direct' })}
+                                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${mcqForm.question_image_type === 'direct' ? 'bg-white shadow-sm text-teal-600' : 'text-slate-400'}`}
+                                                    >
+                                                        Direct Link
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMcqForm({ ...mcqForm, question_image_type: 'drive' })}
+                                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${mcqForm.question_image_type === 'drive' ? 'bg-white shadow-sm text-teal-600' : 'text-slate-400'}`}
+                                                    >
+                                                        Google Drive
+                                                    </button>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder={mcqForm.question_image_type === 'drive' ? 'Paste Drive link...' : 'https://...'}
+                                                    value={mcqForm.question_image_url}
+                                                    onChange={(e) => setMcqForm({ ...mcqForm, question_image_url: e.target.value })}
+                                                    className="w-full px-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none"
+                                                />
+                                                {mcqForm.question_image_url && (
+                                                    <div className="mt-2 w-32 h-20 rounded-lg overflow-hidden border border-slate-100">
+                                                        <img
+                                                            src={mcqForm.question_image_type === 'drive' ? convertDriveLink(mcqForm.question_image_url) : mcqForm.question_image_url}
+                                                            className="w-full h-full object-cover"
+                                                            alt="Preview"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Explanation */}
+                                            <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Academic Rationale (Explanation)</label>
+                                                <RichTextEditor
+                                                    value={mcqForm.explanation}
+                                                    onChange={(val) => setMcqForm({ ...mcqForm, explanation: val })}
+                                                    placeholder="Explain why the correct option is right..."
+                                                    height="h-48"
+                                                />
+                                            </div>
+
+                                            {/* Explanation Image */}
+                                            <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Explanation image (Optional)</label>
+                                                <div className="flex bg-slate-50 p-1 rounded-xl border border-gray-100 mb-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMcqForm({ ...mcqForm, explanation_image_type: 'direct' })}
+                                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${mcqForm.explanation_image_type === 'direct' ? 'bg-white shadow-sm text-teal-600' : 'text-slate-400'}`}
+                                                    >
+                                                        Direct Link
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMcqForm({ ...mcqForm, explanation_image_type: 'drive' })}
+                                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${mcqForm.explanation_image_type === 'drive' ? 'bg-white shadow-sm text-teal-600' : 'text-slate-400'}`}
+                                                    >
+                                                        Google Drive
+                                                    </button>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder={mcqForm.explanation_image_type === 'drive' ? 'Paste Drive link...' : 'https://...'}
+                                                    value={mcqForm.explanation_url}
+                                                    onChange={(e) => setMcqForm({ ...mcqForm, explanation_url: e.target.value })}
+                                                    className="w-full px-5 py-3 bg-slate-50 border border-gray-100 rounded-xl text-slate-800 font-bold outline-none"
+                                                />
+                                                {mcqForm.explanation_url && (
+                                                    <div className="mt-2 w-32 h-20 rounded-lg overflow-hidden border border-slate-100">
+                                                        <img
+                                                            src={mcqForm.explanation_image_type === 'drive' ? convertDriveLink(mcqForm.explanation_url) : mcqForm.explanation_url}
+                                                            className="w-full h-full object-cover"
+                                                            alt="Preview"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                <div className="p-6 bg-slate-50 border-t border-gray-100 flex justify-end gap-4">
+                                    <button
+                                        onClick={() => setIsMcqModalOpen(false)}
+                                        className="px-6 py-2.5 text-slate-500 font-bold hover:bg-slate-200 rounded-xl transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveMcq}
+                                        className="flex items-center gap-2 px-8 py-2.5 bg-teal-600 text-white font-black rounded-xl hover:bg-teal-700 transition-all shadow-lg shadow-teal-600/20 text-sm"
+                                    >
+                                        <Save className="w-4 h-4" />
+                                        {editingMcq ? 'Save Changes' : 'Initialize MCQ'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Transfer Modal */}
+                    {isTransferModalOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                                <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Migrate <span className="text-indigo-600">Assets</span></h3>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Structural Reassignment Engine</p>
+                                    </div>
+                                    <button onClick={() => setIsTransferModalOpen(false)} className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-all">
+                                        <X className="w-6 h-6" />
+                                    </button>
+                                </div>
+
+                                <div className="p-10 space-y-8">
+                                    <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100/50">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                                                <ArrowRightLeft className="w-6 h-6 text-indigo-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Migration Scope</p>
+                                                <p className="text-xl font-black text-slate-900">{isBulkTransfer ? `${selectedQuestionIds.length} Items Selected` : 'Single Item Migration'}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        {/* Subject Selection */}
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Destination Subject</label>
+                                            <select
+                                                value={transferTarget.subjectId}
+                                                onChange={(e) => setTransferTarget({ ...transferTarget, subjectId: e.target.value, topicId: '', subtopicId: '' })}
+                                                className="w-full px-6 py-4 bg-slate-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-600/5 transition-all appearance-none"
+                                            >
+                                                <option value="">Select Target Subject</option>
+                                                {subjectsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* Topic Selection */}
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Destination Topic</label>
+                                            <select
+                                                disabled={!transferTarget.subjectId}
+                                                value={transferTarget.topicId}
+                                                onChange={(e) => setTransferTarget({ ...transferTarget, topicId: e.target.value, subtopicId: '' })}
+                                                className="w-full px-6 py-4 bg-slate-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-600/5 transition-all disabled:opacity-50 appearance-none"
+                                            >
+                                                <option value="">Select Target Topic</option>
+                                                {topicsList.filter(t => t.subject_id === parseInt(transferTarget.subjectId)).map(t => (
+                                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Subtopic Selection */}
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Destination Subtopic <span className="text-slate-300 font-medium">(Optional)</span></label>
+                                            <select
+                                                disabled={!transferTarget.topicId}
+                                                value={transferTarget.subtopicId}
+                                                onChange={(e) => setTransferTarget({ ...transferTarget, subtopicId: e.target.value })}
+                                                className="w-full px-6 py-4 bg-slate-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-600/5 transition-all disabled:opacity-50 appearance-none"
+                                            >
+                                                <option value="">Move to Topic Level (No Subtopic)</option>
+                                                {subtopicsList.filter(st => st.topic_id === parseInt(transferTarget.topicId)).map(st => (
+                                                    <option key={st.id} value={st.id}>{st.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-4 pt-4">
+                                        <button
+                                            onClick={() => setIsTransferModalOpen(false)}
+                                            className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all"
+                                        >
+                                            Abort
+                                        </button>
+                                        <button
+                                            onClick={handleBulkTransfer}
+                                            disabled={!transferTarget.topicId}
+                                            className="flex-1 py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale"
+                                        >
+                                            Execute Migration
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </main>
+            </div >
+
+            {/* Rename Modal */}
+            {
+                isRenameModalOpen && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+                            <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                                        <Edit2 className="w-5 h-5 text-indigo-600" />
+                                        Rename <span className="text-indigo-600">Identity</span>
+                                    </h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Update Master Tree Component</p>
+                                </div>
+                                <button onClick={() => setIsRenameModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="p-8 space-y-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">New Descriptor</label>
+                                    <input
+                                        value={renameValue}
+                                        onChange={e => setRenameValue(e.target.value)}
+                                        className="w-full px-6 py-4 bg-slate-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all text-slate-800"
+                                        placeholder="Enter new name..."
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSaveHierarchyName();
+                                            if (e.key === 'Escape') setIsRenameModalOpen(false);
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => setIsRenameModalOpen(false)}
+                                        className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all"
+                                    >
+                                        Abort
+                                    </button>
+                                    <button
+                                        onClick={handleSaveHierarchyName}
+                                        className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                    >
+                                        Confirm Change
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Practice Parameters Modal */}
+            {isSettingsModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-md" onClick={() => setIsSettingsModalOpen(false)} />
+                    <div className="relative w-full max-w-md bg-white rounded-[32px] shadow-2xl border border-slate-100 p-8 animate-in zoom-in-95 duration-200">
+                        <h2 className="text-xl font-black text-slate-900 mb-2 tracking-tight">Practice Session Protocol</h2>
+                        <p className="text-xs font-medium text-slate-400 mb-8 uppercase tracking-widest">Global MCQ Density Control</p>
+
+                        <div className="space-y-6">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block text-center">MCQs per Practice Session</label>
+                                <div className="relative">
+                                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                                    <input
+                                        type="number"
+                                        value={practiceMcqLimit}
+                                        onChange={(e) => setPracticeMcqLimit(Number(e.target.value))}
+                                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-center"
+                                        placeholder="Standard: 20"
+                                    />
+                                </div>
+                                <p className="mt-3 text-[10px] font-bold text-slate-400 italic text-center">Sets the dynamic threshold for auto-shuffled rounds.</p>
+                            </div>
+
+                            <div className="flex gap-4 pt-4">
+                                <button
+                                    onClick={() => setIsSettingsModalOpen(false)}
+                                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 bg-slate-50 rounded-2xl transition-all"
+                                >
+                                    Dismiss
+                                </button>
+                                <button
+                                    onClick={handleSavePracticeSettings}
+                                    className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest text-white bg-slate-900 hover:bg-teal-600 rounded-2xl transition-all shadow-xl shadow-slate-200 active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    <Save className="w-4 h-4" /> Synchronize
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

@@ -1,0 +1,381 @@
+# 🎨 Aptivo Portal - Visual Feature Guide
+
+## 🏠 Application Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     ROOT PAGE (/)                            │
+│                                                              │
+│  Checks authentication status:                               │
+│  ├── If logged in as Student → /dashboard                   │
+│  ├── If logged in as Admin → /admin/dashboard               │
+│  └── If not logged in → /login                             │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     LOGIN PAGE                               │
+│                                                              │
+│  ┌───────────────────────────────────────────────────┐     │
+│  │  🧠 Aptivo Logo                                    │     │
+│  │  "Welcome to Aptivo"                               │     │
+│  │                                                     │     │
+│  │  📧 Email: ___________________________             │     │
+│  │  🔒 Password: ________________________             │     │
+│  │                                                     │     │
+│  │  [Remember me]      [Forgot password?]             │     │
+│  │                                                     │     │
+│  │  [        Sign In        ]                         │     │
+│  │                                                     │     │
+│  │  Demo Credentials:                                 │     │
+│  │  Student: student@demo.com / Student@123           │     │
+│  │  Admin: admin@aptivo.com / Admin@123               │     │
+│  └───────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                 ┌─────────────────────────┐
+                 │ ROLE DETERMINATION       │
+                 └─────────────────────────┘
+                     │                 │
+        Student ────┘                 └──── Admin
+              │                                 │
+              ▼                                 ▼
+```
+
+---
+
+## 👨‍🎓 STUDENT DASHBOARD
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ SIDEBAR          │ HEADER                                              │
+│                  │ Search: [Search curricula...] 🔔 [Alex Chen Premium]│
+├────────────────────────────────────────────────────────────────────────┤
+│ 🧠 Aptivo        │ MAIN CONTENT                                        │
+│                  │                                                      │
+│ General          │ Good Morning, Alex! 👋                              │
+│ □ Dashboard      │ Ready to tackle your goals for today?               │
+│ □ My Courses     │                                                      │
+│ □ Practice       │ ┌──────────────────────┐  ┌────────────────────┐  │
+│ □ AI Tutor       │ │ Today's Study Plan    │  │ Progress Analytics │  │
+│ □ Progress       │ │                       │  │                    │  │
+│                  │ │ ✓ Complete Algebra    │  │    ╭─────╮        │  │
+│ Management       │ │ ○ Review Weak Topics  │  │   │  75% │       │  │
+│ □ Content CMS    │ │ ○ 20 Physics MCQs     │  │    ╰─────╯        │  │
+│ □ Upload         │ │ ✓ Chemistry video     │  │                    │  │
+│ □ Universities   │ │                       │  │ Overall Accuracy   │  │
+│ □ Users          │ │ 7 Days 🔥  [Resume]   │  │                    │  │
+│ □ Settings       │ └──────────────────────┘  │ Sessions: 25       │  │
+│                  │                            │ Questions: 250     │  │
+│ [Logout]         │ ┌──────────────────────┐  │ Time: 15 hours     │  │
+│                  │ │ AI Study Buddy        │  └────────────────────┘  │
+│                  │ │   🧠                   │                          │
+│                  │ │ Need instant help?    │  ┌────────────────────┐  │
+│                  │ │ [Ask AI Tutor]        │  │ Quick Actions      │  │
+│                  │ └──────────────────────┘  │ [Start Practice]   │  │
+│                  │                            │ [Take Mock Test]   │  │
+│                  │ ┌──────────────────────┐  │ [View Progress]    │  │
+│                  │ │ Accuracy Trends       │  └────────────────────┘  │
+│                  │ │        📊             │                          │
+│                  │ │  [Graph: 7 days]      │                          │
+│                  │ └──────────────────────┘                          │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 👨‍💼 ADMIN DASHBOARD
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ SIDEBAR          │ ADMIN DASHBOARD                                     │
+├────────────────────────────────────────────────────────────────────────┤
+│ 🧠 Aptivo        │ Manage your educational content and users           │
+│                  │                                                      │
+│ General          │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐│
+│ ■ Dashboard      │ │ 👥  150  │ │ 📄 2,500 │ │ 📚  45   │ │ 📊  5   ││
+│ □ Content CMS    │ │ Students │ │ MCQs     │ │ Topics   │ │ Subject ││
+│ □ Upload         │ └──────────┘ └──────────┘ └──────────┘ └─────────┘│
+│ □ Universities   │                                                      │
+│ □ Users          │ Quick Actions                                        │
+│ □ Settings       │ ┌────────────┐ ┌────────────┐ ┌────────────┐      │
+│                  │ │ 📤 Upload  │ │ 📚 Manage  │ │ 👥 User    │      │
+│ [Logout]         │ │ MCQs       │ │ Content    │ │ Management │      │
+│                  │ └────────────┘ └────────────┘ └────────────┘      │
+│                  │                                                      │
+│                  │ Recent Activity                                      │
+│                  │ ┌──────────────────────────────────────────────┐   │
+│                  │ │ ✅ MCQs Uploaded - 50 new questions          │   │
+│                  │ │ 👤 New Student - John Doe joined Math        │   │
+│                  │ │ 📝 Content Updated - Chemistry revised       │   │
+│                  │ └──────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📤 EXCEL MCQ UPLOADER
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ Excel MCQ Uploader                        [Download Template]          │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│ 1. Select Content Hierarchy                                            │
+│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                   │
+│ │ Subject:     │ │ Topic:       │ │ Subtopic:    │                   │
+│ │ [Mathematics]│ │ [Algebra]    │ │ [Equations]  │                   │
+│ └──────────────┘ └──────────────┘ └──────────────┘                   │
+│                                                                         │
+│ 2. Upload Excel File                                                   │
+│ ┌─────────────────────────────────────────────────────────────┐       │
+│ │                                                              │       │
+│ │                    📄                                        │       │
+│ │         Click to upload Excel file                          │       │
+│ │    Supports .xlsx and .xls files (max 10MB)                │       │
+│ │                                                              │       │
+│ └─────────────────────────────────────────────────────────────┘       │
+│                                                                         │
+│ --- AFTER FILE UPLOAD ---                                              │
+│                                                                          │
+│ Preview MCQs (Showing 5 of 50)              [Cancel] [Upload 50 MCQs]  │
+│ ┌──────────────────────────────────────────────────────────────┐      │
+│ │ 1. What is 2+2?                                               │      │
+│ │ ┌────────┐ ┌────────┐  Correct: C                            │      │
+│ │ │ A) 2   │ │ B) 3   │  Difficulty: Easy                       │      │
+│ │ └────────┘ └────────┘                                         │      │
+│ │ ┌────────┐ ┌────────┐                                         │      │
+│ │ │ C) 4✓  │ │ D) 5   │                                         │      │
+│ │ └────────┘ └────────┘                                         │      │
+│ └──────────────────────────────────────────────────────────────┘      │
+│                                                                         │
+│ --- AFTER UPLOAD SUCCESS ---                                            │
+│                                                                         │
+│                  ✅ Upload Successful!                                 │
+│             Total MCQs: 50                                              │
+│             Successfully Uploaded: 50                                   │
+│             Failed: 0                                                   │
+│                                                                         │
+│                 [Upload Another File]                                   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📊 PRACTICE SESSION FLOW
+
+```
+Student reads subtopic content (Markdown)
+              │
+              ▼
+     [Practice Now] button
+              │
+              ▼
+   Fetch university rules
+   (MCQ count, difficulty %)
+              │
+              ▼
+    Generate MCQ session
+    (Random selection by difficulty)
+              │
+              ▼
+   ┌────────────────────────┐
+   │ Practice Session       │
+   │ Question 1 of 10       │
+   │                        │
+   │ What is the force?     │
+   │                        │
+   │ ○ A) Mass × Velocity   │
+   │ ○ B) Mass × Accel      │
+   │ ○ C) Mass / Time       │
+   │ ○ D) None              │
+   │                        │
+   │ [Skip] [Submit]        │
+   └────────────────────────┘
+              │
+              ▼
+   Track attempt in database
+   Update statistics
+   Calculate score
+              │
+              ▼
+   ┌────────────────────────┐
+   │ Session Complete!      │
+   │                        │
+   │ Score: 8/10 (80%)      │
+   │ Time: 5 minutes        │
+   │                        │
+   │ [Review Answers]       │
+   │ [Practice Again]       │
+   └────────────────────────┘
+              │
+              ▼
+    Update learning streak
+    Update weakness detection
+    Refresh analytics
+```
+
+---
+
+## 🎨 Design Tokens
+
+### Colors
+```
+Primary (Mint):      ████ #88D1B1
+Primary Light:       ████ #A3E4C7
+Primary Dark:        ████ #6DB89F
+
+Secondary (Indigo):  ████ #14b8a6
+Secondary Light:     ████ #818CF8
+
+Background:          ████ #F8FAFC
+Surface:             ████ #FFFFFF
+Border:              ████ #E2E8F0
+
+Text Primary:        ████ #0F172A
+Text Secondary:      ████ #64748B
+Text Tertiary:       ████ #94A3B8
+
+Success:             ████ #10B981
+Warning:             ████ #F59E0B
+Error:               ████ #EF4444
+```
+
+### Spacing
+```
+XS:  0.5rem  (8px)
+SM:  0.75rem (12px)
+MD:  1rem    (16px)
+LG:  1.5rem  (24px)
+XL:  2rem    (32px)
+2XL: 3rem    (48px)
+```
+
+### Border Radius
+```
+SM:   8px   (buttons)
+MD:   12px  (inputs)
+LG:   16px  (small cards)
+XL:   24px  (main cards)
+2XL:  32px  (hero sections)
+Full: 9999px (circles)
+```
+
+### Shadows
+```
+SM:  0 2px 8px rgba(0,0,0,0.02)
+MD:  0 4px 16px rgba(0,0,0,0.04)
+LG:  0 10px 30px rgba(0,0,0,0.06)
+XL:  0 20px 50px rgba(0,0,0,0.08)
+Glow: 0 8px 24px rgba(136, 209, 177, 0.15)
+```
+
+---
+
+## 🗺️ Database Relationships
+
+```
+users (Students/Admins)
+  ├── student_university_enrollments
+  │     └── universities
+  │
+  ├── student_topic_enrollments
+  │     └── topics
+  │           └── subjects
+  │
+  ├── practice_sessions
+  │     ├── subtopics
+  │     └── mcq_attempts
+  │           └── mcqs
+  │
+  └── detected_weaknesses
+        └── subtopics
+
+universities
+  ├── university_practice_rules
+  │     └── subjects
+  └── university_access_control
+        └── institutions
+
+subjects
+  └── topics
+        └── subtopics
+              ├── content_markdown
+              └── mcqs
+```
+
+---
+
+## 📱 Responsive Breakpoints
+
+```
+Mobile:     < 640px   (sm)
+Tablet:     640-1024px (md, lg)
+Desktop:    > 1024px   (xl, 2xl)
+
+Sidebar:
+  - Desktop: Fixed 256px width
+  - Mobile: Collapsed to hamburger menu (future)
+
+Header:
+  - Desktop: Full search bar + user menu
+  - Mobile: Compact search + profile icon
+
+Cards:
+  - Desktop: Grid (2-3 columns)
+  - Tablet: Grid (2 columns)
+  - Mobile: Stack (1 column)
+```
+
+---
+
+## 🔐 Security Features
+
+```
+Row Level Security (RLS):
+  ├── Students can only see their own data
+  ├── Admins can see all data in their institution
+  └── Super admins can see everything
+
+Authentication:
+  ├── Supabase Auth (JWT tokens)
+  ├── Secure password hashing
+  ├── Session persistence
+  └── Role-based access control
+
+Data Validation:
+  ├── Input sanitization
+  ├── Type checking (TypeScript)
+  ├── SQL injection prevention
+  └── XSS protection
+```
+
+---
+
+## 🚀 Performance Optimizations
+
+```
+Frontend:
+  ├── Code splitting (Next.js automatic)
+  ├── Image optimization (next/image)
+  ├── Lazy loading components
+  ├── Debounced search inputs
+  └── Memoized calculations
+
+Backend:
+  ├── Database indexes on foreign keys
+  ├── Batch operations for bulk uploads
+  ├── Pagination for large datasets
+  ├── Efficient SQL queries
+  └── Connection pooling (Supabase)
+
+Caching:
+  ├── Static page generation
+  ├── API response caching
+  └── Client-side state management
+```
+
+---
+
+This visual guide shows the complete architecture and user experience of the Aptivo Portal!

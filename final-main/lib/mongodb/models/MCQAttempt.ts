@@ -1,0 +1,36 @@
+import mongoose, { Schema, Document } from 'mongoose';
+
+export interface IMCQAttempt extends Document {
+    id: number;
+    practice_session_id?: number;
+    mcq_id: number;
+    student_id: string;
+    selected_option?: string;
+    is_correct: boolean;
+    time_spent_seconds: number;
+    created_at: Date;
+    topic_id?: number;
+    subtopic_id?: number;
+    university_id?: number;
+}
+
+const MCQAttemptSchema: Schema = new Schema({
+    id: { type: Number, required: true, unique: true },
+    practice_session_id: { type: Number },
+    mcq_id: { type: Number, required: true },
+    student_id: { type: String, required: true },
+    selected_option: { type: String },
+    is_correct: { type: Boolean, default: false },
+    time_spent_seconds: { type: Number, default: 0 },
+    created_at: { type: Date, default: Date.now },
+    topic_id: { type: Number },
+    subtopic_id: { type: Number },
+    university_id: { type: Number },
+});
+
+// Added indexes for performance
+MCQAttemptSchema.index({ student_id: 1, is_correct: 1 });
+MCQAttemptSchema.index({ is_correct: 1, student_id: 1 });
+MCQAttemptSchema.index({ practice_session_id: 1 });
+
+export default mongoose.models.MCQAttempt || mongoose.model<IMCQAttempt>('MCQAttempt', MCQAttemptSchema);

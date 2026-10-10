@@ -1,0 +1,4 @@
+import {NextRequest,NextResponse} from 'next/server';
+import {isAuthRejection,resolveMobileUser,issueMobileToken,publicUser,mobileCors} from '@/lib/mobile-auth';
+export async function OPTIONS(){return new NextResponse(null,{status:204,headers:mobileCors});}
+export async function POST(req:NextRequest){const auth=req.headers.get('authorization');if(!auth?.startsWith('Bearer '))return NextResponse.json({error:'Unauthorized'},{status:401,headers:mobileCors});try{const {user}=await resolveMobileUser(auth.slice(7));return NextResponse.json({success:true,token:await issueMobileToken(user),user:publicUser(user)},{headers:mobileCors});}catch(e){if(!isAuthRejection(e))return NextResponse.json({error:'The portal is temporarily unavailable. Please try again.'},{status:503,headers:mobileCors});return NextResponse.json({success:false,error:'Please sign in again.',code:'INVALID_TOKEN'},{status:401,headers:mobileCors});}}

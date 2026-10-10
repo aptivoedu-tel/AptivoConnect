@@ -1,0 +1,78 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getPortalSession } from '@/lib/portalSession';
+import { authOptions } from '@/lib/authOptions';
+import connectToDatabase from '@/lib/mongodb/connection';
+import Passage from '@/lib/mongodb/models/Passage';
+
+export async function GET(req: NextRequest) {
+    try {
+        await connectToDatabase();
+        const { searchParams } = new URL(req.url);
+        const subtopic_id = searchParams.get('subtopic_id');
+
+        const filter: any = {};
+        if (subtopic_id) filter.subtopic_id = parseInt(subtopic_id);
+
+        const passages = await Passage.find(filter).sort({ created_at: -1 });
+        return NextResponse.json({ passages });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+export async function POST(req: NextRequest) {
+    try {
+        const session = await getPortalSession(authOptions);
+        if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!['super_admin', 'institution_admin'].includes(session.user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+        await connectToDatabase();
+        const body = await req.json();
+        const last = await Passage.findOne({}, { id: 1 }).sort({ id: -1 });
+        const newId = (last?.id || 0) + 1;
+
+        const passage = await Passage.create({
+            ...body,
+            id: newId, // If body has id, this ensures we override it with a fresh one to avoid duplicate key errors
+            created_at: new Date()
+        });
+        return NextResponse.json({ passage }, { status: 201 });
+    } catch (error: any) {
+        console.error('[API/Passage] POST failure:', error);
+        return NextResponse.json({ error: error.message || 'Storage write failed' }, { status: 500 });
+    }
+}
+
+export async function PATCH(req: NextRequest) {
+    try {
+        const session = await getPortalSession(authOptions);
+        if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!['super_admin', 'institution_admin'].includes(session.user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+        await connectToDatabase();
+        const body = await req.json();
+        const { id, ...update } = body;
+
+        const passage = await Passage.findOneAndUpdate({ id: parseInt(id) }, update, { returnDocument: 'after' });
+        return NextResponse.json({ passage });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+export async function DELETE(req: NextRequest) {
+    try {
+        const session = await getPortalSession(authOptions);
+        if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!['super_admin', 'institution_admin'].includes(session.user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+        await connectToDatabase();
+        const { searchParams } = new URL(req.url);
+        const id = searchParams.get('id');
+
+        await Passage.deleteOne({ id: parseInt(id!) });
+        return NextResponse.json({ success: true });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "aptivo-workspace",
+  "private": true,
+  "workspaces": ["final-main", "Connect"],
+  "scripts": {
+    "dev": "npm run dev --workspace aptivo-portal",
+    "build": "npm run build --workspace aptivo-portal",
+    "start": "npm run start --workspace aptivo-portal"
+  }
+}

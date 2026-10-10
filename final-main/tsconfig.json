@@ -1,0 +1,53 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts",
+    ".next-mobile-review/types/**/*.ts",
+    ".next-mobile-review/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "clear-active-sessions.ts",
+    "tmp_cleanup_zombies.ts",
+    "tmp_fix_ids.ts",
+    "tmp_fix_verified.ts",
+    "tmp_recover_zombies.ts",
+    "tmp_check_jinnah.ts",
+    "*.config.ts",
+    "scripts/**",
+    "aptivo-mobile/**"
+  ]
+}

@@ -1,0 +1,676 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Upload, Search, Trash2, Ban, CheckCircle, RefreshCw, Eye, EyeOff, FileSpreadsheet } from 'lucide-react';
+import { toast } from 'sonner';
+import { AuthService } from '@/lib/services/authService';
+import * as XLSX from 'xlsx';
+import { useLoading } from '@/lib/context/LoadingContext';
+import Link from 'next/link';
+import { getInitials } from '@/lib/utils';
+
+export default function StudentManagerPage() {
+    const [students, setStudents] = useState<any[]>([]);
+    const { setLoading: setGlobalLoading, isLoading: loading } = useLoading();
+    const [search, setSearch] = useState('');
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [adminInstitutionId, setAdminInstitutionId] = useState<number | null>(null);
+    const [passwordVisible, setPasswordVisible] = useState<Record<string, boolean>>({});
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Deleted-student resolution modal
+    const [deletedStudentModal, setDeletedStudentModal] = useState<{
+        open: boolean;
+        previousName: string;
+        pendingPayload: { name: string; studentId: string; password: string; institutionId: number } | null;
+    }>({ open: false, previousName: '', pendingPayload: null });
+
+    const [resetPasswordModal, setResetPasswordModal] = useState<{
+        open: boolean;
+        student: any;
+        newPassword: string;
+    }>({ open: false, student: null, newPassword: '' });
+
+    // New Student Form
+    const [newStudent, setNewStudent] = useState({
+        studentId: '', // Roll Number
+        name: '',
+        password: '',
+    });
+
+    const creating = loading;
+    const uploading = loading;
+
+    useEffect(() => {
+        loadStudents();
+    }, []);
+
+    const loadStudents = async () => {
+        setGlobalLoading(true, 'Accessing Student Directory...');
+        try {
+            const profileRes = await fetch('/api/mongo/profile');
+            const profileData = await profileRes.json();
+
+            if (!profileRes.ok) throw new Error("Failed to fetch profile");
+
+            const instId = profileData.data?.institution_id;
+            setAdminInstitutionId(instId);
+
+            if (!instId) {
+                toast.error("Institution link missing. You cannot manage students yet.");
+                setGlobalLoading(false);
+                return;
+            }
+
+            const res = await fetch(`/api/mongo/admin/users?role=student&institution_id=${instId}`);
+            const data = await res.json();
+
+            if (data.users) {
+                setStudents(data.users);
+            }
+        } catch (err: any) {
+            console.error(err);
+            toast.error("Failed to load students: " + err.message);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const handleCreateStudent = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        let currentInstId = adminInstitutionId;
+
+        // Final fallback if state is somehow lost or not yet set
+        if (!currentInstId) {
+            const profileRes = await fetch('/api/mongo/profile');
+            const profileData = await profileRes.json();
+            currentInstId = profileData.data?.institution_id;
+            if (currentInstId) setAdminInstitutionId(currentInstId);
+        }
+
+        if (!currentInstId) {
+            toast.error("Institution ID missing. Please refresh the page.");
+            return;
+        }
+
+        setGlobalLoading(true, 'Enrolling Student...');
+        await createSingleStudent(newStudent.name, newStudent.studentId, newStudent.password, currentInstId);
+        setGlobalLoading(false);
+        setShowAddModal(false);
+        setNewStudent({ studentId: '', name: '', password: '' });
+        loadStudents(); // Refresh list
+    };
+
+    const createSingleStudent = async (name: string, studentId: string, password?: string, manualInstId?: number, action?: 'resume' | 'new') => {
+        const instIdToUse = manualInstId || adminInstitutionId;
+        if (!instIdToUse) {
+            toast.error("Institution ID missing");
+            return false;
+        }
+
+        try {
+            const finalPassword = password || Math.random().toString(36).slice(-8);
+
+            const response = await fetch('/api/create-student', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    studentId: studentId.toString(),
+                    name,
+                    password: finalPassword,
+                    institutionId: instIdToUse,
+                    ...(action ? { action } : {})
+                })
+            });
+
+            const result = await response.json();
+
+            // Deleted account detected — show the Resume / New Account modal
+            if (response.status === 409 && result.code === 'STUDENT_DELETED') {
+                setDeletedStudentModal({
+                    open: true,
+                    previousName: result.previousName || name,
+                    pendingPayload: { name, studentId, password: finalPassword, institutionId: instIdToUse }
+                });
+                return null; // Pending user decision
+            }
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to create student');
+            }
+
+            toast.success(result.resumed ? `Account resumed: ${name}` : `Created: ${name}`);
+            return true;
+        } catch (error: any) {
+            toast.error(`Error (${name}): ${error.message}`);
+            return false;
+        }
+    };
+
+    const handleDeletedStudentAction = async (action: 'resume' | 'new') => {
+        const { pendingPayload } = deletedStudentModal;
+        if (!pendingPayload) return;
+        setDeletedStudentModal({ open: false, previousName: '', pendingPayload: null });
+        setGlobalLoading(true, action === 'resume' ? 'Resuming Account...' : 'Creating New Account...');
+        await createSingleStudent(
+            pendingPayload.name,
+            pendingPayload.studentId,
+            pendingPayload.password,
+            pendingPayload.institutionId,
+            action
+        );
+        setGlobalLoading(false);
+        setShowAddModal(false);
+        setNewStudent({ studentId: '', name: '', password: '' });
+        loadStudents();
+    };
+
+    const downloadTemplate = () => {
+        const ws = XLSX.utils.json_to_sheet([
+            { Name: 'John Doe', RollNo: '2024-001', Password: 'securePass123' },
+            { Name: 'Jane Smith', RollNo: '2024-002', Password: '' }
+        ]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Students");
+        XLSX.writeFile(wb, "Student_Upload_Template.xlsx");
+    };
+
+    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setGlobalLoading(true, 'Analyzing Academic Records...');
+        const reader = new FileReader();
+
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const rawData = XLSX.utils.sheet_to_json(ws) as any[];
+
+                if (rawData.length === 0) {
+                    toast.error("Excel file is empty");
+                    setGlobalLoading(false);
+                    return;
+                }
+
+                let currentInstId = adminInstitutionId;
+                if (!currentInstId) {
+                    const profileRes = await fetch('/api/mongo/profile');
+                    const profileData = await profileRes.json();
+                    currentInstId = profileData.data?.institution_id;
+                }
+
+                if (!currentInstId) {
+                    toast.error("Institution ID missing. Please refresh.");
+                    setGlobalLoading(false);
+                    return;
+                }
+
+                // Map columns intelligently
+                const studentsToUpload = rawData.map(row => {
+                    // Try to find Name column
+                    const nameKey = Object.keys(row).find(k =>
+                        ['name', 'full name', 'student name', 'fullname'].includes(k.toLowerCase().trim())
+                    );
+                    // Try to find RollNo column
+                    const rollNoKey = Object.keys(row).find(k =>
+                        ['rollno', 'roll no', 'roll number', 'student id', 'studentid', 'id'].includes(k.toLowerCase().trim())
+                    );
+                    // Try to find Password column
+                    const passwordKey = Object.keys(row).find(k =>
+                        ['password', 'pass', 'code'].includes(k.toLowerCase().trim())
+                    );
+
+                    return {
+                        name: nameKey ? row[nameKey] : null,
+                        studentId: rollNoKey ? row[rollNoKey] : null,
+                        password: passwordKey ? row[passwordKey] : null
+                    };
+                }).filter(s => s.name && s.studentId);
+
+                if (studentsToUpload.length === 0) {
+                    throw new Error("No valid student data found. Check column headers (Name, RollNo).");
+                }
+
+                setGlobalLoading(true, `Syncing ${studentsToUpload.length} Students...`);
+
+                const response = await fetch('/api/admin/bulk-create-students', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        students: studentsToUpload,
+                        institutionId: currentInstId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Bulk upload failed');
+                }
+
+                const { summary } = result;
+                toast.success(`Upload Complete: ${summary.success} added, ${summary.skipped} skipped (duplicates).`);
+
+                if (summary.failed > 0) {
+                    toast.error(`${summary.failed} rows failed. Check console for details.`);
+                    console.error('Failed rows:', summary.errors);
+                }
+
+                loadStudents();
+
+            } catch (error: any) {
+                toast.error("Upload Error: " + error.message);
+            } finally {
+                setGlobalLoading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const handleToggleStatus = async (studentId: string, currentStatus: string) => {
+        const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+        const action = newStatus === 'active' ? 'Unsuspend' : 'Suspend';
+
+        if (!confirm(`Are you sure you want to ${action} this student?`)) return;
+
+        try {
+            const res = await fetch('/api/mongo/admin/users', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: studentId, status: newStatus })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to update status');
+            }
+            toast.success(`Student ${newStatus} successfully`);
+
+            // Optimistic update
+            setStudents(students.map(s => s.id === studentId ? { ...s, status: newStatus } : s));
+        } catch (error: any) {
+            toast.error("Failed to update status: " + error.message);
+        }
+    };
+
+    const handleDelete = async (userId: string) => {
+        if (!confirm('Are you sure you want to delete this student?')) return;
+        try {
+            const res = await fetch('/api/delete-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to delete student');
+            }
+            toast.success('Student deleted');
+            setStudents(students.filter(s => s.id !== userId));
+        } catch (error: any) {
+            toast.error("Failed to delete: " + error.message);
+        }
+    };
+
+    const handleResetPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const { student, newPassword } = resetPasswordModal;
+        if (!student || !newPassword) return;
+
+        setGlobalLoading(true, 'Updating Student Password...');
+        try {
+            const res = await fetch('/api/mongo/admin/users', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: student.id, password: newPassword })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to reset password');
+            }
+            toast.success(`Password updated for ${student.full_name || student.name}`);
+            setResetPasswordModal({ open: false, student: null, newPassword: '' });
+            loadStudents(); // Refresh to see initial_password update
+        } catch (error: any) {
+            toast.error("Failed to reset password: " + error.message);
+        } finally {
+            setGlobalLoading(false);
+        }
+    };
+
+    const togglePassword = (id: string) => {
+        setPasswordVisible(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    const filteredStudents = students.filter((s: any) =>
+        (s.full_name || s.name)?.toLowerCase().includes(search.toLowerCase()) ||
+        s.student_id_code?.toLowerCase().includes(search.toLowerCase()) ||
+        s.email?.toLowerCase().includes(search.toLowerCase())
+    );
+
+    return (
+        <div className="max-w-[1400px] mx-auto">
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 mb-8">
+                <div>
+                    <h1 className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight">Student Manager</h1>
+                    <p className="text-slate-500 text-base lg:text-lg">Manage accounts, status, and access.</p>
+                </div>
+                <div className="grid grid-cols-2 lg:flex lg:items-center gap-2 lg:gap-3">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleBulkUpload}
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                    />
+                    <button
+                        onClick={downloadTemplate}
+                        className="flex items-center justify-center gap-2 px-3 lg:px-4 py-2 bg-white border border-gray-200 text-slate-700 rounded-xl hover:bg-gray-50 font-bold transition-all shadow-sm text-xs sm:text-sm"
+                        title="Download Excel Template"
+                    >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                        <span>Template</span>
+                    </button>
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        className="flex items-center justify-center gap-2 px-3 lg:px-4 py-2 bg-white border border-gray-200 text-slate-700 rounded-xl hover:bg-gray-50 font-bold transition-all shadow-sm text-xs sm:text-sm"
+                    >
+                        <FileSpreadsheet className="w-4 h-4" />
+                        <span className="whitespace-nowrap">{uploading ? 'Processing...' : 'Bulk Upload'}</span>
+                    </button>
+                    <button
+                        onClick={() => setShowAddModal(true)}
+                        className="col-span-2 lg:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-black shadow-lg shadow-teal-100 transition-all hover:scale-[1.02] active:scale-95 text-sm"
+                    >
+                        <Plus className="w-5 h-5" />
+                        Add Student Account
+                    </button>
+                </div>
+            </div>
+
+            {/* Tool Bar */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div className="relative w-full sm:w-96">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                        type="text"
+                        placeholder="Search name, roll no, or email..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 text-sm transition-all shadow-inner"
+                    />
+                </div>
+                <div className="flex items-center justify-between sm:justify-end gap-3 text-[10px] lg:text-sm font-black uppercase tracking-widest text-slate-400">
+                    <div>Total: <span className="text-slate-900">{students.length}</span></div>
+                    <div className="w-1 h-1 rounded-full bg-slate-200" />
+                    <div>Active: <span className="text-emerald-600">{students.filter((s: any) => s.status !== 'suspended').length}</span></div>
+                </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm overflow-x-auto no-scrollbar">
+                <table className="w-full min-w-[800px]">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
+                            <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Roll No</th>
+                            <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Initial Password</th>
+                            <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Email (Login)</th>
+                            <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                            <th className="text-right py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {loading && students.length === 0 ? (
+                            <tr><td colSpan={6} className="p-8 text-center text-gray-400 font-bold uppercase tracking-widest text-[10px]">Consulting Database...</td></tr>
+                        ) : filteredStudents.length === 0 ? (
+                            <tr><td colSpan={6} className="p-12 text-center text-gray-400">
+                                {adminInstitutionId ? "No students found." : "Waiting for connection..."}
+                            </td></tr>
+                        ) : filteredStudents.map((student) => (
+                            <tr key={student.id} className={`hover:bg-gray-50/50 transition-colors ${student.status === 'suspended' ? 'bg-red-50/30' : ''}`}>
+                                <td className="py-4 px-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${student.status === 'suspended' ? 'bg-red-100 text-red-600' : 'bg-teal-100 text-teal-600'
+                                            }`}>
+                                            {getInitials(student.full_name || student.name)}
+                                        </div>
+                                        <div className="font-bold text-slate-900">
+                                            {student.full_name || student.name}
+                                            <Link
+                                                href={`/institution-admin/analytics/student?id=${student.id}`}
+                                                className="ml-2 text-[10px] text-teal-600 hover:underline font-black uppercase tracking-widest"
+                                            >
+                                                Stats
+                                            </Link>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="py-4 px-6">
+                                    <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded text-slate-600">
+                                        {student.student_id_code || 'N/A'}
+                                    </span>
+                                </td>
+                                <td className="py-4 px-6">
+                                    <div className="flex items-center gap-2">
+                                        <span className={`font-mono text-sm ${!student.initial_password ? 'text-gray-400 italic' : 'text-slate-600'}`}>
+                                            {passwordVisible[student.id]
+                                                ? (student.initial_password || 'Not Set')
+                                                : (student.initial_password ? '••••••••' : 'Not Set')}
+                                        </span>
+                                        {student.initial_password && (
+                                            <button
+                                                onClick={() => togglePassword(student.id)}
+                                                className="text-gray-400 hover:text-teal-600"
+                                            >
+                                                {passwordVisible[student.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                            </button>
+                                        )}
+                                    </div>
+                                </td>
+                                <td className="py-4 px-6 text-sm text-slate-500">
+                                    {student.email}
+                                </td>
+                                <td className="py-4 px-6">
+                                    <button
+                                        onClick={() => handleToggleStatus(student.id, student.status || 'active')}
+                                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity ${student.status === 'suspended'
+                                            ? 'bg-red-100 text-red-800'
+                                            : 'bg-emerald-100 text-emerald-800'
+                                            }`}>
+                                        {student.status === 'suspended' ? 'Suspended' : 'Active'}
+                                    </button>
+                                </td>
+                                <td className="py-4 px-6 text-right flex justify-end gap-2">
+                                    <button
+                                        onClick={() => handleToggleStatus(student.id, student.status || 'active')}
+                                        title={student.status === 'suspended' ? "Unsuspend" : "Suspend"}
+                                        className={`p-2 rounded-lg transition-colors ${student.status === 'suspended'
+                                            ? 'text-emerald-600 hover:bg-green-50'
+                                            : 'text-orange-500 hover:bg-orange-50'
+                                            }`}
+                                    >
+                                        {student.status === 'suspended' ? <CheckCircle className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                                    </button>
+                                    <button
+                                        onClick={() => setResetPasswordModal({ open: true, student, newPassword: '' })}
+                                        title="Reset Password"
+                                        className="text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                                    >
+                                        <RefreshCw className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(student.id)}
+                                        title="Delete"
+                                        className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* ADD STUDENT MODAL */}
+            {showAddModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                            <h2 className="text-xl font-bold text-slate-900">Add New Student</h2>
+                            <p className="text-slate-500 text-sm mt-1">Create a student account manually.</p>
+                        </div>
+                        <form onSubmit={handleCreateStudent} className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Full Name</label>
+                                <input
+                                    required
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500"
+                                    placeholder="e.g. John Smith"
+                                    value={newStudent.name}
+                                    onChange={e => setNewStudent({ ...newStudent, name: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Roll Number (ID)</label>
+                                <input
+                                    required
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-mono"
+                                    placeholder="e.g. 2024-001"
+                                    value={newStudent.studentId}
+                                    onChange={e => setNewStudent({ ...newStudent, studentId: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Password</label>
+                                <input
+                                    required
+                                    type="text"
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-mono"
+                                    placeholder="Initial password"
+                                    value={newStudent.password}
+                                    onChange={e => setNewStudent({ ...newStudent, password: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 py-3 bg-gray-100 text-slate-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={creating}
+                                    className="flex-1 py-3 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 flex justify-center items-center gap-2"
+                                >
+                                    {creating ? 'Creating...' : 'Create'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* DELETED STUDENT RESOLUTION MODAL */}
+            {deletedStudentModal.open && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-amber-100 bg-amber-50">
+                            <div className="flex items-center gap-3 mb-1">
+                                <span className="text-2xl">⚠️</span>
+                                <h2 className="text-xl font-bold text-slate-900">Account Previously Deleted</h2>
+                            </div>
+                            <p className="text-slate-600 text-sm mt-1">
+                                A deleted account for <span className="font-bold text-slate-800">{deletedStudentModal.previousName}</span> exists with this ID.
+                            </p>
+                        </div>
+                        <div className="p-6 space-y-3">
+                            <p className="text-sm text-slate-500 mb-4">What would you like to do?</p>
+
+                            <button
+                                onClick={() => handleDeletedStudentAction('resume')}
+                                className="w-full flex flex-col items-start px-5 py-4 bg-teal-50 border-2 border-teal-200 hover:border-teal-500 hover:bg-teal-100 rounded-xl transition-all group"
+                            >
+                                <span className="font-black text-teal-700 group-hover:text-teal-800 flex items-center gap-2">
+                                    <span>↩️</span> Resume Account
+                                </span>
+                                <span className="text-xs text-slate-500 mt-1">Restore the old account — all progress and history will be kept.</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleDeletedStudentAction('new')}
+                                className="w-full flex flex-col items-start px-5 py-4 bg-slate-50 border-2 border-slate-200 hover:border-slate-400 hover:bg-slate-100 rounded-xl transition-all group"
+                            >
+                                <span className="font-black text-slate-700 group-hover:text-slate-900 flex items-center gap-2">
+                                    <span>🆕</span> Create New Account
+                                </span>
+                                <span className="text-xs text-slate-500 mt-1">Delete the old record permanently and start fresh — no history carried over.</span>
+                            </button>
+
+                            <button
+                                onClick={() => setDeletedStudentModal({ open: false, previousName: '', pendingPayload: null })}
+                                className="w-full py-3 text-sm text-slate-400 hover:text-slate-600 transition-colors font-bold"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* RESET PASSWORD MODAL */}
+            {resetPasswordModal.open && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                            <h2 className="text-xl font-bold text-slate-900">Reset Password</h2>
+                            <p className="text-slate-500 text-sm mt-1">Set a new password for {resetPasswordModal.student?.full_name || resetPasswordModal.student?.name}.</p>
+                        </div>
+                        <form onSubmit={handleResetPassword} className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">New Password</label>
+                                <input
+                                    required
+                                    type="text"
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-mono"
+                                    placeholder="Enter new password"
+                                    value={resetPasswordModal.newPassword}
+                                    onChange={e => setResetPasswordModal({ ...resetPasswordModal, newPassword: e.target.value })}
+                                />
+                                <p className="text-[10px] text-slate-400 mt-2 uppercase font-black tracking-widest">Student will use this to login immediately.</p>
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setResetPasswordModal({ open: false, student: null, newPassword: '' })}
+                                    className="flex-1 py-3 bg-gray-100 text-slate-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 py-3 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition-colors flex justify-center items-center gap-2"
+                                >
+                                    Update Password
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

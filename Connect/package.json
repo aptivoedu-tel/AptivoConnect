@@ -1,0 +1,17 @@
+{
+  "name": "@aptivo/connect",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/ConnectPage.tsx",
+    "./models": "./src/server/models/index.ts"
+  },
+  "peerDependencies": {
+    "react": "19.2.3",
+    "mongoose": "9.2.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.10",
+    "react": "19.2.3"
+  }
+}

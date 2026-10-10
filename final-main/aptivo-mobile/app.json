@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Aptivo",
+    "slug": "aptivo-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "aptivo",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/aptivo-launcher-icon.png",
+    "splash": {
+      "image": "../public/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "tech.aptivo.mobile"
+    },
+    "android": {
+      "package": "tech.aptivo.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/aptivo-launcher-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "../public/logo.png",
+          "color": "#0D9488",
+          "defaultChannel": "aptivo-updates"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "image": "../public/logo.png",
+          "imageWidth": 128
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dc0fe1e8-3942-430e-a980-f3d4e8ea3eed"
+      }
+    }
+  }
+}

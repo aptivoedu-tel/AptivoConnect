@@ -1,0 +1,254 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import {
+    Bell, Check, Trash2, Filter, AlertTriangle, Info, CheckCircle, Clock
+} from 'lucide-react';
+import { useUI } from '@/lib/context/UIContext';
+import Sidebar from '@/components/layout/Sidebar';
+import Header from '@/components/layout/Header';
+import { AuthService } from '@/lib/services/authService';
+import { NotificationService, Notification } from '@/lib/services/notificationService';
+import StudentPageSkeleton from '@/components/ui/StudentPageSkeleton';
+
+export default function NotificationsPage() {
+    const [user, setUser] = useState<any>(null);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
+    const [processing, setProcessing] = useState<string | null>(null);
+    const { isSidebarCollapsed } = useUI();
+
+    useEffect(() => {
+        loadNotifications();
+    }, []);
+
+    const loadNotifications = async () => {
+        const currentUser = AuthService.getCurrentUser();
+        const storedUser = typeof window !== 'undefined' ? localStorage.getItem('aptivo_user') : null;
+        const activeUser = currentUser || (storedUser ? JSON.parse(storedUser) : null);
+
+        if (!activeUser) {
+            window.location.href = '/login';
+            return;
+        }
+
+        setUser(activeUser);
+
+        try {
+            const { notifications } = await NotificationService.getUserNotifications(activeUser.id);
+            if (notifications) setNotifications(notifications);
+        } catch (error) {
+            console.error("Error loading notifications:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleMarkAsRead = async (id: number) => {
+        if (!user) return;
+        const notification = notifications.find(n => n.id === id);
+        if (notification?.read_at) return; // Already read
+
+        setProcessing(id.toString());
+        const { success } = await NotificationService.markAsRead(id, user.id);
+
+        if (success) {
+            setNotifications(notifications.map(n =>
+                n.id === id ? { ...n, read_at: new Date().toISOString() } : n
+            ));
+        }
+        setProcessing(null);
+    };
+
+    const handleMarkAllRead = async () => {
+        if (!user) return;
+        setProcessing('all');
+        const { success } = await NotificationService.markAllAsRead(user.id);
+
+        if (success) {
+            setNotifications(notifications.map(n => ({ ...n, read_at: new Date().toISOString() })));
+        }
+        setProcessing(null);
+    };
+
+    const handleDelete = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent triggering read
+        if (!user) return;
+        // In a real app, we might soft delete or hide. 
+        // For now, let's assume we filter it out locally or call a delete API if it existed for recipients
+        // Our service currently has deleteNotification but that might be for admins deleting the source.
+        // We'll just hide it locally for the user view or assume mark as read is enough for student context.
+        // Actually, let's just implement "Archive" or local hide if the API doesn't support recipient deletion.
+        // Looking at service, deleteNotification is: DELETE FROM notifications... which deletes for EVERYONE.
+        // So students shouldn't delete. They should just mark as read.
+    };
+
+    const filteredNotifications = notifications.filter(n => {
+        if (filter === 'unread') return !n.read_at;
+        if (filter === 'read') return !!n.read_at;
+        return true;
+    });
+
+    const unreadCount = notifications.filter(n => !n.read_at).length;
+
+    const getIcon = (category: string) => {
+        switch (category) {
+            case 'alert': return <AlertTriangle className="w-5 h-5 text-red-500" />;
+            case 'important': return <AlertTriangle className="w-5 h-5 text-orange-500" />;
+            case 'success': return <CheckCircle className="w-5 h-5 text-emerald-500" />;
+            case 'info': return <Info className="w-5 h-5 text-teal-500" />;
+            case 'normal': default: return <Bell className="w-5 h-5 text-teal-500" />;
+        }
+    };
+
+    const getBgColor = (category: string, read: boolean) => {
+        if (read) return 'bg-white hover:bg-gray-50';
+        switch (category) {
+            case 'alert': return 'bg-red-50/50 hover:bg-red-50 border-l-4 border-red-500';
+            case 'important': return 'bg-orange-50/50 hover:bg-orange-50 border-l-4 border-orange-500';
+            case 'success': return 'bg-emerald-50/50 hover:bg-emerald-50 border-l-4 border-emerald-500';
+            case 'info': return 'bg-teal-50/50 hover:bg-teal-50 border-l-4 border-teal-500';
+            case 'normal': default: return 'bg-teal-50/50 hover:bg-teal-50 border-l-4 border-teal-500';
+        }
+    };
+
+    const renderMessage = (text: string) => {
+        if (!text) return null;
+        // More robust split that handles bolding correctly
+        const parts = text.split(/(\*\*[^\*]+\*\*)/g);
+        return parts.map((part, i) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={i} className="font-extrabold text-slate-900 drop-shadow-sm">{part.slice(2, -2)}</strong>;
+            }
+            return part;
+        });
+    };
+
+    if (loading) return <StudentPageSkeleton isSidebarCollapsed={isSidebarCollapsed} />;
+
+    return (
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <Sidebar userRole={user?.role || 'student'} />
+            <Header userName={user?.full_name} userEmail={user?.email} userAvatar={user?.avatar_url} />
+
+            <main className={`${isSidebarCollapsed ? 'lg:ml-28' : 'lg:ml-80'} mt-24 p-3 sm:p-4 lg:mt-20 lg:p-8 transition-all duration-300`}>
+                <div className="max-w-4xl mx-auto">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-4">
+                        <div>
+                            <h1 className="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2 sm:gap-3">
+                                Notifications
+                                {unreadCount > 0 && (
+                                    <span className="bg-red-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                                        {unreadCount} New
+                                    </span>
+                                )}
+                            </h1>
+                            <p className="text-sm sm:text-base text-slate-500 mt-1">Stay updated with your courses and announcements</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                            <div className="bg-white rounded-xl border border-gray-200 p-1 flex">
+                                <button
+                                    onClick={() => setFilter('all')}
+                                    className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors ${filter === 'all' ? 'bg-gray-100 text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    All
+                                </button>
+                                <button
+                                    onClick={() => setFilter('unread')}
+                                    className={`px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors ${filter === 'unread' ? 'bg-teal-50 text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Unread
+                                </button>
+                            </div>
+                            {unreadCount > 0 && (
+                                <button
+                                    onClick={handleMarkAllRead}
+                                    disabled={!!processing}
+                                    className="px-3 sm:px-4 py-2 bg-white border border-gray-200 text-slate-600 rounded-xl text-xs sm:text-sm font-medium hover:bg-gray-50 flex items-center gap-2 shadow-sm"
+                                >
+                                    <Check className="w-4 h-4" />
+                                    Mark all read
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Notification List */}
+                    <div className="space-y-3 sm:space-y-4">
+                        {filteredNotifications.length > 0 ? (
+                            filteredNotifications.map((notification) => (
+                                <div
+                                    key={notification.id}
+                                    onClick={() => handleMarkAsRead(notification.id)}
+                                    className={`group relative p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 transition-all cursor-pointer ${getBgColor(notification.category || 'info', !!notification.read_at)}`}
+                                >
+                                    <div className="flex items-start gap-3 sm:gap-5">
+                                        <div className="mt-1 shrink-0 p-2.5 sm:p-3 rounded-2xl bg-white shadow-sm border border-gray-100">
+                                            {getIcon(notification.category || 'info')}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-2">
+                                                <div className="min-w-0">
+                                                    <h3 className={`font-black text-slate-800 tracking-tight break-words ${!notification.read_at ? 'text-base sm:text-lg' : 'text-sm sm:text-base'}`}>
+                                                        {notification.title}
+                                                    </h3>
+                                                    <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">
+                                                        {notification.institution_name || (notification.sender_role?.replace('_', ' ') || 'System Update')}
+                                                    </span>
+                                                </div>
+                                                <span className="self-start shrink-0 text-[10px] font-black text-slate-400 flex items-center gap-1.5 bg-white/80 backdrop-blur-sm px-2.5 sm:px-3 py-1.5 rounded-full border border-gray-100 shadow-sm">
+                                                    <Clock className="w-3 h-3" />
+                                                    {new Date(notification.created_at).toLocaleDateString()}
+                                                </span>
+                                            </div>
+
+                                            <p className="text-slate-600 text-sm leading-relaxed mb-4 whitespace-pre-wrap break-words">
+                                                {renderMessage(notification.message)}
+                                            </p>
+
+                                            {notification.image_url && (
+                                                <div className="mb-4 rounded-2xl overflow-hidden border-4 border-white shadow-xl max-w-lg">
+                                                    <img
+                                                        src={notification.image_url}
+                                                        alt="Attachment"
+                                                        className="w-full h-auto object-cover hover:scale-105 transition-transform duration-500"
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {!notification.read_at && (
+                                                <div className="flex justify-end">
+                                                    <div className="text-[10px] font-black text-teal-600 uppercase tracking-widest flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <CheckCircle className="w-3 h-3" /> Click to mark as read
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+                                <Bell className="w-12 h-12 mx-auto text-slate-200 mb-4" />
+                                <h3 className="text-lg font-bold text-slate-700 mb-1">No notifications</h3>
+                                <p className="text-slate-400 max-w-xs mx-auto">
+                                    {filter === 'unread' ? "You're all caught up! No new notifications." : "You haven't received any notifications yet."}
+                                </p>
+                                {filter !== 'all' && (
+                                    <button
+                                        onClick={() => setFilter('all')}
+                                        className="mt-4 px-4 py-2 text-teal-600 font-medium text-sm hover:underline"
+                                    >
+                                        View all history
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}

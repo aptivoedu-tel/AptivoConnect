@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /api/
+Disallow: /admin/
+Disallow: /institution-admin/
+Disallow: /dashboard/
+Disallow: /profile/
+Disallow: /practice/
+Disallow: /progress/
+
+Sitemap: https://www.aptivo.tech/sitemap.xml

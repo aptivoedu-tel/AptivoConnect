@@ -1,0 +1,696 @@
+// Supabase removed — using MongoDB API routes via fetch
+// import { supabase } from '../supabase/client';
+import * as XLSX from 'xlsx';
+
+export interface MCQRow {
+    subject?: string;
+    topic?: string;
+    subtopic?: string;
+    question: string;
+    image_url?: string;
+    option_a: string;
+    option_b: string;
+    option_c: string;
+    option_d: string;
+    correct_option: 'A' | 'B' | 'C' | 'D';
+    explanation?: string;
+    explanation_url?: string;
+    difficulty?: 'easy' | 'medium' | 'hard';
+    subjectId?: number;
+    topicId?: number;
+    subtopicId?: number | null;
+    university?: string;
+    test_section?: string;
+    universityId?: number | null;
+    testSectionId?: number | null;
+    passage_id_key?: string;
+    passage_title?: string;
+    passage_content?: string;
+}
+
+export interface ValidationError {
+    row: number;
+    field: string;
+    message: string;
+}
+
+export interface UploadResult {
+    success: boolean;
+    totalRows: number;
+    processedRows: number;
+    failedRows: number;
+    errors: ValidationError[];
+    uploadId?: number;
+    inserted?: number;
+    skipped_in_file_duplicates?: number;
+    skipped_exact_duplicates?: number;
+    skipped_similar_questions?: number;
+    duplicateDetails?: {
+        inFile: number;
+        exact: number;
+        similar: number;
+        items: Array<{
+            index: number;
+            question: string;
+            type: 'in-file' | 'exact' | 'similar';
+            match?: string;
+            score?: number;
+        }>;
+    };
+}
+
+export interface AutoAssignResult {
+    success: boolean;
+    subjectId?: number;
+    topicId?: number;
+    subtopicId?: number | null;
+    message: string;
+}
+
+export class ExcelUploadService {
+    private static readonly REQUIRED_COLUMNS = [
+        'question',
+        'option_a',
+        'option_b',
+        'option_c',
+        'option_d',
+        'correct_option'
+    ];
+
+    /**
+     * Validate Excel file structure
+     */
+    static validateFile(file: File): { valid: boolean; error?: string } {
+        // Check file type
+        const validTypes = [
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.xlsx',
+            '.xls'
+        ];
+
+        const isValidType = validTypes.some(type =>
+            file.type === type || file.name.endsWith(type)
+        );
+
+        if (!isValidType) {
+            return { valid: false, error: 'Please upload a valid Excel file (.xlsx or .xls)' };
+        }
+
+        // Check file size (10MB limit)
+        const maxSize = 10 * 1024 * 1024;
+        if (file.size > maxSize) {
+            return { valid: false, error: 'File size must be less than 10MB' };
+        }
+
+        return { valid: true };
+    }
+
+    /**
+     * Parse Excel file and extract MCQ data
+     */
+    static async parseExcelFile(file: File): Promise<{ data: MCQRow[]; errors: ValidationError[] }> {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                try {
+                    const data = e.target?.result;
+                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+                    const { validData, errors } = this.validateData(jsonData);
+                    resolve({ data: validData, errors });
+                } catch (error) {
+                    resolve({
+                        data: [],
+                        errors: [{ row: 0, field: 'file', message: 'Failed to parse Excel file' }]
+                    });
+                }
+            };
+
+            reader.readAsBinaryString(file);
+        });
+    }
+
+    /**
+     * Validate parsed data
+     */
+    private static validateData(data: any[]): { validData: MCQRow[]; errors: ValidationError[] } {
+        const validData: MCQRow[] = [];
+        const errors: ValidationError[] = [];
+
+        if (data.length === 0) {
+            errors.push({ row: 0, field: 'file', message: 'Excel file is empty' });
+            return { validData, errors };
+        }
+
+        // Check if required columns exist using normalized comparison
+        const firstRow = data[0];
+        const normalizedHeaders = Object.keys(firstRow).map(k => this.normalizeColumnName(k));
+        const missingColumns = this.REQUIRED_COLUMNS.filter(
+            col => !normalizedHeaders.includes(this.normalizeColumnName(col))
+        );
+
+        if (missingColumns.length > 0) {
+            errors.push({
+                row: 0,
+                field: 'structure',
+                message: `Missing required columns: ${missingColumns.join(', ')}. Found: ${Object.keys(firstRow).join(', ')}`
+            });
+            return { validData, errors };
+        }
+
+        // Validate each row
+        data.forEach((row, index) => {
+            const rowNumber = index + 2; // +2 because Excel rows start at 1 and we have headers
+            const rowErrors: ValidationError[] = [];
+
+            // Normalize column names
+            const normalizedRow = this.normalizeRow(row);
+
+            // Validate required fields
+            if (!normalizedRow.question || normalizedRow.question.trim() === '') {
+                rowErrors.push({ row: rowNumber, field: 'question', message: 'Question is required' });
+            }
+
+            if (!normalizedRow.option_a || normalizedRow.option_a.trim() === '') {
+                rowErrors.push({ row: rowNumber, field: 'option_a', message: 'Option A is required' });
+            }
+
+            if (!normalizedRow.option_b || normalizedRow.option_b.trim() === '') {
+                rowErrors.push({ row: rowNumber, field: 'option_b', message: 'Option B is required' });
+            }
+
+            if (!normalizedRow.option_c || normalizedRow.option_c.trim() === '') {
+                rowErrors.push({ row: rowNumber, field: 'option_c', message: 'Option C is required' });
+            }
+
+            if (!normalizedRow.option_d || normalizedRow.option_d.trim() === '') {
+                rowErrors.push({ row: rowNumber, field: 'option_d', message: 'Option D is required' });
+            }
+
+            // Robust correct_option extraction
+            let rawOption = normalizedRow.correct_option?.toString().trim().toUpperCase() || '';
+
+            // Extract the first letter A, B, C, or D, or Map 1-4
+            let correctOption = '';
+            const numericMap: Record<string, string> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
+
+            if (numericMap[rawOption]) {
+                correctOption = numericMap[rawOption];
+            } else {
+                const match = rawOption.match(/[A-D]/);
+                if (match) {
+                    correctOption = match[0];
+                }
+            }
+
+            if (!['A', 'B', 'C', 'D'].includes(correctOption)) {
+                rowErrors.push({
+                    row: rowNumber,
+                    field: 'correct_option',
+                    message: `Invalid correct option: "${rawOption}". Must be A, B, C, or D.`
+                });
+            }
+
+            // Validate image URL if provided
+            if (normalizedRow.image_url && !this.isValidUrl(normalizedRow.image_url)) {
+                rowErrors.push({
+                    row: rowNumber,
+                    field: 'image_url',
+                    message: 'Invalid image URL format'
+                });
+            }
+
+            // Validate explanation URL if provided
+            if (normalizedRow.explanation_url && !this.isValidUrl(normalizedRow.explanation_url)) {
+                rowErrors.push({
+                    row: rowNumber,
+                    field: 'explanation_url',
+                    message: 'Invalid explanation URL format'
+                });
+            }
+
+            // LaTeX/Markdown Syntax Validation
+            const fieldsToValidate = ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'explanation'];
+            fieldsToValidate.forEach(field => {
+                const content = normalizedRow[field]?.toString() || '';
+                if (content && !this.validateLatex(content)) {
+                    rowErrors.push({
+                        row: rowNumber,
+                        field: field,
+                        message: `Potential LaTeX syntax error (unbalanced $ or $$) in ${field}`
+                    });
+                }
+            });
+
+            if (rowErrors.length === 0) {
+                validData.push({
+                    subject: normalizedRow.subject?.trim(),
+                    topic: normalizedRow.topic?.trim(),
+                    subtopic: normalizedRow.subtopic?.trim(),
+                    question: normalizedRow.question.trim(),
+                    image_url: normalizedRow.image_url?.trim(),
+                    option_a: normalizedRow.option_a.trim(),
+                    option_b: normalizedRow.option_b.trim(),
+                    option_c: normalizedRow.option_c.trim(),
+                    option_d: normalizedRow.option_d.trim(),
+                    correct_option: correctOption as 'A' | 'B' | 'C' | 'D',
+                    explanation: normalizedRow.explanation?.trim(),
+                    explanation_url: normalizedRow.explanation_url?.trim(),
+                    difficulty: this.validateDifficulty(normalizedRow.difficulty),
+                    university: (normalizedRow.university || normalizedRow.uni)?.toString().trim(),
+                    test_section: (normalizedRow.test_section || normalizedRow.test || normalizedRow.section || normalizedRow.test_election || normalizedRow.test_selection)?.toString().trim(),
+                    passage_id_key: normalizedRow.passage_id_key?.toString().trim(),
+                    passage_title: normalizedRow.passage_title?.toString().trim(),
+                    passage_content: normalizedRow.passage_content?.toString().trim()
+                });
+            } else {
+                errors.push(...rowErrors);
+            }
+        });
+
+        // Group propagation: propagate passage title and content to all questions belonging to the same passage group key
+        const passageGroupMap = new Map<string, { content: string; title: string }>();
+        
+        // First pass: find the passage content and title for each group key
+        validData.forEach(row => {
+            if (row.passage_id_key) {
+                const hasContent = row.passage_content && row.passage_content.trim() !== '';
+                const hasTitle = row.passage_title && row.passage_title.trim() !== '';
+                const existing = passageGroupMap.get(row.passage_id_key);
+                
+                if (!existing && (hasContent || hasTitle)) {
+                    passageGroupMap.set(row.passage_id_key, {
+                        content: row.passage_content || '',
+                        title: row.passage_title || ''
+                    });
+                } else if (existing) {
+                    if (hasContent && !existing.content) {
+                        existing.content = row.passage_content || '';
+                    }
+                    if (hasTitle && !existing.title) {
+                        existing.title = row.passage_title || '';
+                    }
+                }
+            }
+        });
+
+        // Second pass: apply the content and title to all rows in the group
+        validData.forEach(row => {
+            if (row.passage_id_key) {
+                const groupData = passageGroupMap.get(row.passage_id_key);
+                if (groupData) {
+                    row.passage_content = groupData.content;
+                    row.passage_title = groupData.title;
+                }
+            }
+        });
+
+        return { validData, errors };
+    }
+
+    /**
+     * Public validation for a single row (used by UI for preview)
+     */
+    static validateMCQRow(row: any): { isValid: boolean; errors: string[] } {
+        const errors: string[] = [];
+        const normalized = this.normalizeRow(row);
+
+        if (!normalized.question) errors.push('Question is missing');
+
+        // LaTeX check
+        const fields = ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'explanation'];
+        fields.forEach(f => {
+            if (normalized[f] && !this.validateLatex(normalized[f])) {
+                errors.push(`LaTeX syntax error in ${f}`);
+            }
+        });
+
+        const hasOptions = normalized.option_a && normalized.option_b && normalized.option_c && normalized.option_d;
+        if (!hasOptions) errors.push('Options are incomplete');
+
+        const correct = normalized.correct_option?.toString().toUpperCase();
+        if (!['A', 'B', 'C', 'D'].includes(correct)) errors.push('Invalid correct option');
+
+        return { isValid: errors.length === 0, errors };
+    }
+
+    /**
+     * Normalize column names (handle variations)
+     */
+    private static normalizeRow(row: any): any {
+        const normalized: any = {};
+
+        Object.keys(row).forEach(key => {
+            const normalizedKey = this.normalizeColumnName(key);
+            normalized[normalizedKey] = row[key];
+        });
+
+        return normalized;
+    }
+
+    private static normalizeColumnName(name: string): string {
+        const n = name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+        
+        // Aliases
+        if (['question', 'questiontext', 'mcq', 'q'].includes(n)) return 'question';
+        if (['correctoption', 'correctanswer', 'answer', 'ans', 'key', 'correct'].includes(n)) return 'correct_option';
+        if (['optiona', 'choicea', 'a', 'a)'].includes(n)) return 'option_a';
+        if (['optionb', 'choiceb', 'b', 'b)'].includes(n)) return 'option_b';
+        if (['optionc', 'choicec', 'c', 'c)'].includes(n)) return 'option_c';
+        if (['optiond', 'choiced', 'd', 'd)'].includes(n)) return 'option_d';
+        if (['explanation', 'exp', 'solution', 'reasoning'].includes(n)) return 'explanation';
+        if (['subject', 'subj', 'category'].includes(n)) return 'subject';
+        if (['topic', 'unit', 'chapter'].includes(n)) return 'topic';
+        if (['subtopic', 'subtopicname'].includes(n)) return 'subtopic';
+        if (['university', 'uni', 'institution'].includes(n)) return 'university';
+        if (['testsection', 'section', 'test'].includes(n)) return 'test_section';
+        if (['difficulty', 'diff'].includes(n)) return 'difficulty';
+        if (['imageurl', 'image', 'img'].includes(n)) return 'image_url';
+        if (['passagecontent', 'passage', 'passagetext', 'passage_content'].includes(n)) return 'passage_content';
+        if (['passagetitle', 'passageheader', 'passage_title'].includes(n)) return 'passage_title';
+        if (['passageid', 'passagegroup', 'passagekey', 'passageidkey', 'passage_id_key', 'passage_id'].includes(n)) return 'passage_id_key';
+        
+        return name.toLowerCase().replace(/\s+/g, '_').trim();
+    }
+
+    /**
+     * Validate difficulty level
+     */
+    private static validateDifficulty(difficulty: any): 'easy' | 'medium' | 'hard' {
+        if (!difficulty) return 'medium';
+
+        const normalized = difficulty.toString().toLowerCase();
+        if (['easy', 'medium', 'hard'].includes(normalized)) {
+            return normalized as 'easy' | 'medium' | 'hard';
+        }
+
+        return 'medium';
+    }
+
+    /**
+     * Normalize question text for comparison
+     */
+    private static normalizeQuestion(text: string): string {
+        if (!text) return '';
+        return text
+            .toLowerCase()
+            .replace(/[^\w\s]|_/g, "") // Remove punctuation
+            .replace(/\s+/g, " ")      // Remove extra whitespace
+            .trim();
+    }
+
+    /**
+     * Generate SHA256 hash of text
+     */
+    private static async generateHash(text: string): Promise<string> {
+        const msgBuffer = new TextEncoder().encode(text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /**
+     * Validate URL format
+     */
+    private static isValidUrl(url: string): boolean {
+        try {
+            new URL(url);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Validate LaTeX syntax (basic check for balanced delimiters)
+     */
+    private static validateLatex(content: string): boolean {
+        // Check for balanced $$
+        const blockCount = (content.match(/\$\$/g) || []).length;
+        if (blockCount % 2 !== 0) return false;
+
+        // Check for balanced $ (ignoring escaped \$)
+        const inlineCount = (content.replace(/\\\$/g, '').match(/\$/g) || []).length;
+        // Subtract block delimiters from inline count if they are processed as single $ twice
+        const actualInlineCount = inlineCount - (blockCount * 2);
+        if (actualInlineCount % 2 !== 0) return false;
+
+        return true;
+    }
+
+    /**
+     * Find subject by name
+     */
+    private static async findSubject(subjectName: string): Promise<number | null> {
+        try {
+            const res = await fetch(`/api/mongo/hierarchy/find?type=subject&name=${encodeURIComponent(subjectName)}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.id;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Find topic by name under a subject
+     */
+    private static async findTopic(topicName: string, subjectId: number): Promise<number | null> {
+        try {
+            const res = await fetch(`/api/mongo/hierarchy/find?type=topic&name=${encodeURIComponent(topicName)}&parentId=${subjectId}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.id;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Find subtopic by name under a topic
+     */
+    private static async findSubtopic(subtopicName: string | null | undefined, topicId: number): Promise<number | null> {
+        try {
+            if (!subtopicName || subtopicName.trim() === '') return null;
+            const res = await fetch(`/api/mongo/hierarchy/find?type=subtopic&name=${encodeURIComponent(subtopicName)}&parentId=${topicId}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.id;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Auto-assign question to subject/topic/subtopic based on MCQ data
+     */
+    static async autoAssignHierarchy(mcq: MCQRow): Promise<AutoAssignResult> {
+        try {
+            // Use pre-resolved IDs if provided
+            if (mcq.subjectId && mcq.topicId) {
+                return {
+                    success: true,
+                    subjectId: mcq.subjectId,
+                    topicId: mcq.topicId,
+                    subtopicId: mcq.subtopicId,
+                    message: 'Using manually mapped hierarchy'
+                };
+            }
+
+            if (!mcq.subject || !mcq.topic) {
+                return {
+                    success: false,
+                    message: 'Subject and Topic are required for auto-assignment'
+                };
+            }
+
+            // Step 1: Find subject
+            const subjectId = await this.findSubject(mcq.subject);
+            if (!subjectId) {
+                return {
+                    success: false,
+                    message: `Subject Not Found: "${mcq.subject}". Please create it in Hierarchy Manager first.`
+                };
+            }
+
+            // Step 2: Find topic
+            const topicId = await this.findTopic(mcq.topic, subjectId);
+            if (!topicId) {
+                return {
+                    success: false,
+                    message: `Topic Not Found: "${mcq.topic}" under subject "${mcq.subject}". Please create it first.`
+                };
+            }
+
+            // Step 3: Find subtopic (optional in file, but if name given must exist)
+            let subtopicId: number | null = null;
+            if (mcq.subtopic && mcq.subtopic.trim() !== '') {
+                subtopicId = await this.findSubtopic(mcq.subtopic, topicId);
+                if (!subtopicId) {
+                    return {
+                        success: false,
+                        message: `Subtopic Not Found: "${mcq.subtopic}" under topic "${mcq.topic}". Please create it first.`
+                    };
+                }
+            }
+
+            return {
+                success: true,
+                subjectId,
+                topicId,
+                subtopicId,
+                message: subtopicId
+                    ? `Linked to ${mcq.subject} > ${mcq.topic} > ${mcq.subtopic}`
+                    : `Linked to ${mcq.subject} > ${mcq.topic} (No subtopic)`
+            };
+        } catch (error) {
+            console.error('Error in autoAssignHierarchy:', error);
+            return {
+                success: false,
+                message: `System error during auto-assignment: ${error}`
+            };
+        }
+    }
+
+    /**
+     * Upload MCQs to database (original method - for backward compatibility)
+     */
+    static async uploadMCQs(
+        mcqs: MCQRow[],
+        subtopicId: number,
+        userId: string,
+        fileName: string
+    ): Promise<UploadResult> {
+        try {
+            const res = await fetch('/api/mcqs/bulk-upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mcqs,
+                    subtopicId,
+                    userId,
+                    fileName,
+                    uploadType: 'mcq_excel'
+                })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Upload failed');
+            }
+
+            const result = await res.json();
+            return {
+                success: true,
+                totalRows: result.totalRows,
+                processedRows: result.inserted,
+                inserted: result.inserted,
+                failedRows: mcqs.length - result.inserted,
+                skipped_in_file_duplicates: result.skipped_in_file,
+                skipped_exact_duplicates: result.skipped_exact,
+                skipped_similar_questions: 0,
+                errors: [],
+                uploadId: result.uploadId
+            };
+        } catch (error: any) {
+            console.error('Upload Error:', error);
+            return {
+                success: false,
+                totalRows: mcqs.length,
+                processedRows: 0,
+                failedRows: mcqs.length,
+                errors: [{ row: 0, field: 'system', message: error.message || 'System error' }]
+            };
+        }
+    }
+
+    /**
+     * Upload MCQs with auto-detection and assignment
+     */
+    static async uploadMCQsWithAutoDetect(
+        mcqs: MCQRow[],
+        userId: string,
+        fileName: string
+    ): Promise<UploadResult> {
+        try {
+            // Re-use bulk-upload but with different uploadType
+            const res = await fetch('/api/mcqs/bulk-upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mcqs,
+                    userId,
+                    fileName,
+                    uploadType: 'mcq_excel_auto'
+                })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Upload failed');
+            }
+
+            const result = await res.json();
+            return {
+                success: true,
+                totalRows: result.totalRows,
+                processedRows: result.inserted,
+                inserted: result.inserted,
+                failedRows: mcqs.length - result.inserted,
+                skipped_in_file_duplicates: result.skipped_in_file,
+                skipped_exact_duplicates: result.skipped_exact,
+                skipped_similar_questions: 0,
+                errors: [],
+                uploadId: result.uploadId
+            };
+        } catch (error: any) {
+            console.error('Auto-detect upload error:', error);
+            return {
+                success: false,
+                totalRows: mcqs.length,
+                processedRows: 0,
+                failedRows: mcqs.length,
+                errors: [{ row: 0, field: 'system', message: error.message || 'System error' }]
+            };
+        }
+    }
+
+    /**
+     * Get preview data (first 5 rows)
+     */
+    static getPreviewData(mcqs: MCQRow[]): MCQRow[] {
+        return mcqs.slice(0, 5);
+    }
+
+    /**
+     * Comprehensive duplicate validation before upload
+     */
+    static async validateDuplicates(
+        mcqs: MCQRow[]
+    ): Promise<UploadResult['duplicateDetails']> {
+        try {
+            const res = await fetch('/api/mcqs/validate-duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mcqs })
+            });
+
+            if (!res.ok) throw new Error('Failed to validate duplicates');
+
+            return await res.json();
+        } catch (error) {
+            console.error('Validate Duplicates Error:', error);
+            return {
+                inFile: 0,
+                exact: 0,
+                similar: 0,
+                items: []
+            };
+        }
+    }
+}
