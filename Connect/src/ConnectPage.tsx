@@ -214,7 +214,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
       <div className="relative grid items-end gap-8 lg:grid-cols-[1fr_auto]">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-teal-50"><Sparkles className="h-3.5 w-3.5 text-emerald-300" /> APTIVO CONNECT <span className="text-white/40">/</span> STUDENT MARKETPLACE</div>
-          <h1 className="mt-6 max-w-3xl text-3xl font-bold tracking-tight sm:text-5xl sm:leading-[1.12]">Your next good study session <span className="bg-gradient-to-r from-teal-300 to-emerald-300 bg-clip-text text-transparent">starts here.</span></h1>
+          <h1 className="mt-6 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-5xl sm:leading-[1.12]">Your next good study session <span className="bg-gradient-to-r from-teal-300 to-emerald-300 bg-clip-text text-transparent">starts here.</span></h1>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-teal-50/80 sm:text-base">Explore focused practice and study resources made for Pakistan's entrance exams. Start with free demos, then keep your learning in one place.</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a href="#catalog" className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-teal-900/30 transition hover:bg-teal-500">Explore resources <Search className="h-4 w-4" /></a>
@@ -223,7 +223,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
         </div>
         <div className="hidden rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur sm:block">
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-teal-200">Start free</p>
-          <p className="mt-3 text-2xl font-bold">3 practice sets</p>
+          <p className="mt-3 text-2xl font-bold text-white">3 practice sets</p>
           <p className="mt-1 text-sm text-teal-50/70">Original demo questions<br />with full explanations</p>
           <div className="mt-4 flex items-center gap-2 text-xs text-teal-100/80"><Users className="h-4 w-4" />One browser-only preview, no account needed</div>
         </div>
@@ -265,7 +265,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
 
     <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#042F2E] via-teal-900 to-teal-700 p-6 text-white shadow-lg sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6 sm:p-8">
       <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-emerald-400/15 blur-2xl" />
-      <div className="relative"><p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-300">Made for focused progress</p><h2 className="mt-2 text-xl font-bold">Good preparation is built one clear step at a time.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-teal-100/80">Try an original demo set, see your explanations, and decide what you want to practice next.</p></div>
+      <div className="relative"><p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-300">Made for focused progress</p><h2 className="mt-2 text-xl font-bold text-white">Good preparation is built one clear step at a time.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-teal-100/80">Try an original demo set, see your explanations, and decide what you want to practice next.</p></div>
       <a href="#catalog" className="relative mt-4 inline-flex items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-teal-900 transition hover:bg-teal-50 sm:mt-0">Browse demos <Search className="ml-2 h-4 w-4" /></a>
     </section>
 
@@ -290,12 +290,12 @@ function SellerDetail({ seller, products, onClose, onOpenProduct }: { seller: De
         <div className="flex items-center justify-between"><span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wide">Demo seller · sample content</span><button onClick={onClose} className="rounded-lg p-2 hover:bg-white/10" aria-label="Close seller profile"><X className="h-5 w-5" /></button></div>
         <div className="mt-6 flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-300 to-emerald-300 text-xl font-bold text-teal-950 shadow-lg">{seller.initials}</div>
-          <div><h2 id="seller-title" className="text-2xl font-bold sm:text-3xl">{seller.name}</h2><p className="mt-1 text-sm text-teal-100">{seller.tagline}</p></div>
+          <div><h2 id="seller-title" className="text-2xl font-bold text-white sm:text-3xl">{seller.name}</h2><p className="mt-1 text-sm text-teal-100">{seller.tagline}</p></div>
         </div>
         <div className="mt-5 grid max-w-sm grid-cols-3 gap-2 text-center">
-          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="flex items-center justify-center gap-1 text-lg font-bold"><Star className="h-4 w-4 fill-amber-300 text-amber-300" />{avg.toFixed(1)}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">avg rating</p></div>
-          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="text-lg font-bold">{products.length}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">resources</p></div>
-          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="text-lg font-bold">{learners.toLocaleString()}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">learners</p></div>
+          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="flex items-center justify-center gap-1 text-lg font-bold text-white"><Star className="h-4 w-4 fill-amber-300 text-amber-300" />{avg.toFixed(1)}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">avg rating</p></div>
+          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="text-lg font-bold text-white">{products.length}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">resources</p></div>
+          <div className="rounded-xl bg-white/10 px-2 py-3 backdrop-blur"><p className="text-lg font-bold text-white">{learners.toLocaleString()}</p><p className="mt-0.5 text-[11px] uppercase tracking-wide text-teal-100/80">learners</p></div>
         </div>
       </div>
       <div className="space-y-5 p-6 sm:p-8">
@@ -318,7 +318,7 @@ function ProductDetail({ product, onClose, onStart, onOpenSeller }: { product: P
         </div>
         <div className="mt-7 flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-300 to-emerald-300 text-teal-950 shadow-lg">{subjectIcon(product.subject, "h-6 w-6")}</div>
-          <div><p className="text-sm text-teal-100">{product.exam} · {product.subject}</p><h2 id="product-title" className="mt-1 text-2xl font-bold sm:text-3xl">{product.title}</h2></div>
+          <div><p className="text-sm text-teal-100">{product.exam} · {product.subject}</p><h2 id="product-title" className="mt-1 text-2xl font-bold text-white sm:text-3xl">{product.title}</h2></div>
         </div>
         <p className="mt-3 text-sm text-teal-50/90">by {product.isDemo ? "Demo creator · Aptivo sample content" : product.creator}{onOpenSeller && <> · <button onClick={onOpenSeller} className="font-semibold underline underline-offset-2 hover:text-white">View seller profile</button></>}</p>
       </div>
