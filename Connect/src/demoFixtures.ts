@@ -45,11 +45,24 @@ export const demoTests: DemoTest[] = [
   },
 ];
 
-export type DemoProduct = { id: string; title: string; exam: string; subject: string; kind: "Practice test" | "Study guide"; description: string; creator: string; rating: number; downloads: number; tags: string[]; testId?: string; featured?: boolean };
+export type DemoSeller = { id: string; name: string; initials: string; tagline: string; credential: string; bio: string };
+
+export const demoSellers: DemoSeller[] = [
+  {
+    id: "seller-sara",
+    name: "Sara Khan",
+    initials: "SK",
+    tagline: "Biology & chemistry practice, explained simply",
+    credential: "Demo seller · sample content, not a verified creator",
+    bio: "Sara is a fictional demo seller showing how Connect creators will appear to students. Her sample sets focus on high-yield MDCAT topics with worked explanations after every question. Anything purchased or published in this preview stays in your browser only.",
+  },
+];
+
+export type DemoProduct = { id: string; title: string; exam: string; subject: string; kind: "Practice test" | "Study guide"; description: string; creator: string; rating: number; downloads: number; tags: string[]; testId?: string; featured?: boolean; sellerId?: string };
 
 export const demoProducts: DemoProduct[] = [
-  { id: "p-bio", title: "Biology: cells & systems", exam: "MDCAT", subject: "Biology", kind: "Practice test", description: "Eight original questions on cell biology, genetics, blood and respiration. Includes worked explanations after you submit.", creator: "Aptivo demo team", rating: 4.9, downloads: 1240, tags: ["8 questions", "12 min", "Explanations"], testId: "biology-core", featured: true },
+  { id: "p-bio", title: "Biology: cells & systems", exam: "MDCAT", subject: "Biology", kind: "Practice test", description: "Eight original questions on cell biology, genetics, blood and respiration. Includes worked explanations after you submit.", creator: "Sara Khan", rating: 4.9, downloads: 1240, tags: ["8 questions", "12 min", "Explanations"], testId: "biology-core", featured: true, sellerId: "seller-sara" },
   { id: "p-physics", title: "Physics: motion & energy", exam: "MDCAT", subject: "Physics", kind: "Practice test", description: "Build confidence with motion graphs, energy, waves, circuits and lenses.", creator: "Aptivo demo team", rating: 4.8, downloads: 980, tags: ["8 questions", "10 min", "Explanations"], testId: "physics-motion" },
-  { id: "p-chem", title: "Chemistry: atoms & bonding", exam: "MDCAT", subject: "Chemistry", kind: "Practice test", description: "A focused warm-up across atomic structure, bonding, acids, redox and periodic trends.", creator: "Aptivo demo team", rating: 4.8, downloads: 765, tags: ["8 questions", "10 min", "Explanations"], testId: "chemistry-basics" },
-  { id: "p-guide", title: "The calm exam-week checklist", exam: "All exams", subject: "Study skills", kind: "Study guide", description: "A short, practical plan for revision blocks, sleep, materials and a steady test-day routine.", creator: "Aptivo demo team", rating: 4.7, downloads: 1540, tags: ["Free guide", "6 min read", "Checklist"] },
+  { id: "p-chem", title: "Chemistry: atoms & bonding", exam: "MDCAT", subject: "Chemistry", kind: "Practice test", description: "A focused warm-up across atomic structure, bonding, acids, redox and periodic trends.", creator: "Sara Khan", rating: 4.8, downloads: 765, tags: ["8 questions", "10 min", "Explanations"], testId: "chemistry-basics", sellerId: "seller-sara" },
+  { id: "p-guide", title: "The calm exam-week checklist", exam: "All exams", subject: "Study skills", kind: "Study guide", description: "A short, practical plan for revision blocks, sleep, materials and a steady test-day routine.", creator: "Sara Khan", rating: 4.7, downloads: 1540, tags: ["Free guide", "6 min read", "Checklist"], sellerId: "seller-sara" },
 ];
