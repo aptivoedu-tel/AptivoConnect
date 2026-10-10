@@ -22,7 +22,7 @@ export async function middleware(request:NextRequest){
   try{const {payload}=await jwtVerify(authorization.slice(7),new TextEncoder().encode(secret),{algorithms:['HS256'],issuer:'aptivo',audience:'aptivo-mobile'});if(payload.kind==='mobile'&&payload.role==='student'&&payload.email_verified===true)token=payload;}catch{/* API session adapter performs fresh account checks as well. */}
  }else token=await getToken({req:request,secret});
  if(!token)return pathname.startsWith('/api/')?NextResponse.json({error:'Unauthorized'},{status:401,headers:cors}):NextResponse.redirect(new URL('/login',request.url));
- if(pathname.startsWith('/api/mongo/admin/')&&!['super_admin','institution_admin'].includes(token.role))return NextResponse.json({error:'Forbidden'},{status:403,headers:cors});
+ if(pathname.startsWith('/api/mongo/admin/')&&!(request.method==='GET'&&pathname==='/api/mongo/admin/settings')&&!['super_admin','institution_admin'].includes(token.role))return NextResponse.json({error:'Forbidden'},{status:403,headers:cors});
  if(pathname.startsWith('/admin')&&!['super_admin','institution_admin'].includes(token.role))return NextResponse.redirect(new URL('/dashboard',request.url));
  if(pathname.startsWith('/institution-admin')&&!['super_admin','institution_admin'].includes(token.role))return NextResponse.redirect(new URL('/dashboard',request.url));
  return next();
