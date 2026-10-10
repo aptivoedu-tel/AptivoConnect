@@ -17,5 +17,5 @@ export default async function AdminConnectPage() {
     if (!user || user.status !== 'active' || !user.email_verified) redirect('/login?error=ACCOUNT_UNAVAILABLE');
     if (user.role !== 'super_admin') redirect(user.role === 'institution_admin' ? '/institution-admin' : '/dashboard');
 
-    return <ConnectShell userName={user.full_name} userAvatar={user.avatar_url} userRole="super_admin"><ConnectPage viewer={{ id: String(user.id ?? session.user.id!), name: user.full_name, role: 'super_admin' }} /></ConnectShell>;
+    return <ConnectShell userName={user.full_name} userAvatar={user.avatar_url} userRole="super_admin" hideFooter><ConnectPage viewer={{ id: String(user.id ?? session.user.id!), name: user.full_name, role: 'super_admin' }} /></ConnectShell>;
 }

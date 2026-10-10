@@ -69,6 +69,38 @@ export async function GET(req: NextRequest) {
             } });
         }
 
+        if (action === 'people') {
+            if (user.role !== 'super_admin') return fail('This section requires an admin account.', 403);
+            const profiles = await CreatorProfile.find({}).sort({ updated_at: -1 }).limit(200).lean();
+            const ids = profiles.map((profile) => String(profile.user_id));
+            const products = ids.length ? await Product.find({ creator_id: { $in: ids } }).select('_id creator_id').lean() : [];
+            const entitlements = await Entitlement.aggregate<{ _id: string; buyers: string[] }>([{ $group: { _id: '$product_id', buyers: { $addToSet: '$buyer_id' } } }]);
+            const buyersByProduct = new Map(entitlements.map((row) => [String(row._id), row.buyers as string[]]));
+            const creators = profiles.map((profile) => {
+                const own = products.filter((row) => String(row.creator_id) === String(profile.user_id));
+                const learners = new Set(own.flatMap((row) => buyersByProduct.get(String(row._id)) ?? []));
+                return {
+                    id: String(profile._id),
+                    name: profile.display_name,
+                    status: profile.application_status,
+                    resources: own.length,
+                    learners: learners.size,
+                    joined: profile.created_at ? new Date(profile.created_at).toISOString() : '',
+                };
+            });
+            const learnerIds = await Entitlement.distinct('buyer_id');
+            const resourceCount = await Product.countDocuments({});
+            return json({ ok: true, data: {
+                stats: {
+                    creators: creators.length,
+                    approved: creators.filter((row) => row.status === 'approved').length,
+                    resources: resourceCount,
+                    learners: learnerIds.length,
+                },
+                creators,
+            } });
+        }
+
         if (action === 'moderation') {
             if (user.role !== 'super_admin') return fail('Review requires an admin account.', 403);
             const products = await Product.find({ status: { $in: ['submitted', 'under_review'] } }).sort({ updated_at: -1 }).limit(100).lean();

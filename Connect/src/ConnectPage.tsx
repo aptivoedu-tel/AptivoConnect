@@ -8,7 +8,7 @@ type Viewer = { id: string; name?: string; role: string };
 type Props = { viewer?: Viewer | null; demoOnly?: boolean };
 type Product = DemoProduct & { isDemo?: boolean };
 type Attempt = { id: string; title: string; score: number; total: number; date: string };
-type Tab = "discover" | "library" | "studio" | "review";
+type Tab = "discover" | "library" | "studio" | "review" | "people";
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const storageKey = "aptivo-connect-demo-v1";
@@ -139,6 +139,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
   const [remoteLibrary, setRemoteLibrary] = useState<unknown[]>([]);
   const [studioData, setStudioData] = useState<unknown>(null);
   const [moderationData, setModerationData] = useState<unknown[]>([]);
+  const [peopleData, setPeopleData] = useState<{ stats?: { creators: number; approved: number; resources: number; learners: number }; creators?: { id: string; name: string; status: string; resources: number; learners: number; joined: string }[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -157,7 +158,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
     setAttempts(readDemo("attempts", []));
   }, []);
 
-  const load = useCallback(async (section: "catalog" | "library" | "studio" | "moderation") => {
+  const load = useCallback(async (section: "catalog" | "library" | "studio" | "moderation" | "people") => {
     if (isDemo) return;
     setLoading(true); setError("");
     try {
@@ -176,6 +177,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
         setProducts([...live, ...demoProducts.map((p) => ({ ...p, isDemo: true }))]);
       } else if (section === "library") setRemoteLibrary(getList(body.data, "items"));
       else if (section === "studio") setStudioData(body.data);
+      else if (section === "people") setPeopleData(body.data as typeof peopleData);
       else setModerationData(getList(body.data, "queue"));
     } catch (e) { setError(humanError(e)); }
     finally { setLoading(false); }
@@ -207,7 +209,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
   function nav(tabKey: Tab, label: string) { return <button key={tabKey} onClick={() => { setTab(tabKey); setError(""); setNotice(""); }} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${tab === tabKey ? "bg-teal-600 text-white shadow-sm" : "text-slate-600 hover:bg-teal-50 hover:text-teal-700"}`}>{label}</button>; }
 
   return <div className="mx-auto max-w-7xl space-y-8 pb-16">
-    <section className="relative overflow-hidden rounded-[2rem] bg-[#042F2E] p-6 text-white shadow-xl sm:p-10 lg:p-12">
+    {!isAdmin && <section className="relative overflow-hidden rounded-[2rem] bg-[#042F2E] p-6 text-white shadow-xl sm:p-10 lg:p-12">
       <div className="pointer-events-none absolute -right-16 -top-24 h-80 w-80 rounded-full bg-teal-500/20 blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-8rem] left-1/3 h-64 w-64 rounded-full bg-emerald-400/15 blur-3xl" />
       <div className="pointer-events-none absolute right-24 top-1/2 h-40 w-40 rounded-full border-[28px] border-white/5" />
@@ -228,14 +230,14 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
           <div className="mt-4 flex items-center gap-2 text-xs text-teal-100/80"><Users className="h-4 w-4" />One browser-only preview, no account needed</div>
         </div>}
       </div>
-    </section>
+    </section>}
 
-    <div className="sticky top-[5.5rem] z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{!isAdmin && nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}</div>
+    <div className="sticky top-[5.5rem] z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{!isAdmin && nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}{isAdmin && nav("people", "People")}</div>
 
-    <div className="flex flex-wrap items-center justify-between gap-4">
+    {!isAdmin && <div className="flex flex-wrap items-center justify-between gap-4">
       <p className="text-sm text-slate-500">{filtered.length} resources in this preview · demos are clearly marked</p>
       <div className="text-right">{viewer ? <><p className="text-xs text-slate-500">Signed in as</p><p className="text-sm font-semibold text-slate-800">{viewer.name || "Aptivo student"}</p></> : <div className="flex items-center gap-3"><span className="hidden text-sm text-slate-500 sm:inline">Browse the free demo collection</span><a href="/login" className="text-sm font-semibold text-teal-700 hover:text-teal-900">Sign in</a></div>}</div>
-    </div>
+    </div>}
 
     {isDemo && <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><Sparkles className="mt-1 h-4 w-4 shrink-0 text-amber-600" /><p><strong>Preview mode.</strong> This demo uses original sample content and browser-only progress. Sign in to use the live Connect marketplace. No account, payment or database changes happen here.</p></div>}
     {!viewer && !isDemo && <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">You can explore the free demo resources below. <a className="font-bold underline underline-offset-2" href="/login">Sign in</a> to open your library or creator tools.</div>}
@@ -268,6 +270,18 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
       <div className="grid gap-5 lg:grid-cols-2"><form className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" onSubmit={async (e) => { e.preventDefault(); const ok = await post("creatorApply", { displayName: creatorName, bio: creatorBio }); if (ok) { setCreatorName(""); setCreatorBio(""); } }}><div><h3 className="font-bold text-slate-900">Creator application</h3><p className="mt-1 text-sm text-slate-500">Tell us what you want to help students learn.</p></div><label className="block text-sm font-semibold text-slate-700">Display name<input required minLength={2} maxLength={80} value={creatorName} onChange={(e) => setCreatorName(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-teal-500" placeholder="How students will know you"/></label><label className="block text-sm font-semibold text-slate-700">Short introduction<span className="ml-1 font-normal text-slate-400">20–700 characters</span><textarea required minLength={20} maxLength={700} rows={4} value={creatorBio} onChange={(e) => setCreatorBio(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-teal-500" placeholder="Your subject strengths and experience"/></label><button disabled={busy} className={tealButton}>{busy ? "Sending…" : "Submit application"}</button></form><form className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" onSubmit={async (e) => { e.preventDefault(); const ok = await post("productSubmit", { title: draftTitle, description: draftDescription, subject: draftSubject }); if (ok) { setDraftTitle(""); setDraftDescription(""); } }}><div><h3 className="font-bold text-slate-900">Submit a resource</h3><p className="mt-1 text-sm text-slate-500">The full resource builder is opening soon, so submissions are reviewed before they are accepted. No payments or publishing happen here.</p></div><label className="block text-sm font-semibold text-slate-700">Resource title<input required minLength={3} maxLength={120} value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-teal-500"/></label><label className="block text-sm font-semibold text-slate-700">Subject<select value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-normal outline-none focus:border-teal-500">{subjects.slice(1).map((s) => <option key={s}>{s}</option>)}</select></label><label className="block text-sm font-semibold text-slate-700">Description<textarea required maxLength={1500} rows={3} value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-teal-500"/></label><button disabled={busy} className={quietButton}>{busy ? "Sending…" : "Submit for review"}</button></form></div><div className="rounded-2xl bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-900">Creator applications and resource submissions are not proof of verification. No real financial actions are available in Connect.</div><RemoteList title="Your current submissions" rows={Array.isArray(studioData) ? studioData : getList(studioData, "items")}/></section>}
 
     {tab === "review" && isAdmin && <section className="space-y-5"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-teal-600">Admin review</p><h2 className="mt-2 text-2xl font-bold text-slate-900">Submission queue</h2><p className="mt-2 text-sm text-slate-500">Approve only content that has completed the platform's review process.</p></div>{moderationData.length ? <div className="space-y-3">{moderationData.map((item, i) => { const row = item as Record<string, unknown>; const id = String(row.id ?? row._id ?? ""); return <article key={id || i} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div><p className="font-bold text-slate-900">{String(row.title ?? row.displayName ?? "Review item")}</p><p className="mt-1 text-sm text-slate-500">{String(row.type ?? row.status ?? "Awaiting review")} · {String(row.creatorName ?? row.creator_name ?? "Creator")}</p></div><button disabled={busy || !id} className={tealButton} onClick={() => void post("adminApprove", { itemId: id })}>{busy ? "Working…" : "Approve"}</button></article>; })}</div> : <EmptyState title={loading ? "Loading review queue…" : "No items are waiting for review."} detail="When creator applications or resources need review, they will appear here."/>}</section>}
+
+    {tab === "people" && isAdmin && <section className="space-y-5"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-teal-600">Marketplace community</p><h2 className="mt-2 text-2xl font-bold text-slate-900">People</h2><p className="mt-2 text-sm text-slate-500">Creator applications, their resources and the learners using them.</p></div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        {[
+          { label: "Creators", value: peopleData?.stats?.creators ?? 0 },
+          { label: "Approved", value: peopleData?.stats?.approved ?? 0 },
+          { label: "Resources", value: peopleData?.stats?.resources ?? 0 },
+          { label: "Learners", value: peopleData?.stats?.learners ?? 0 },
+        ].map((stat) => <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm"><p className="text-2xl font-bold text-slate-900">{stat.value.toLocaleString()}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{stat.label}</p></div>)}
+      </div>
+      {peopleData?.creators?.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><ul className="divide-y divide-slate-100">{peopleData.creators.map((creator) => <li key={creator.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-600 to-emerald-500 text-sm font-bold text-white">{creator.name.slice(0, 1).toUpperCase()}</span><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-800">{creator.name}</p><p className="mt-0.5 text-xs text-slate-500">{creator.resources} resource{creator.resources === 1 ? "" : "s"} · {creator.learners.toLocaleString()} learner{creator.learners === 1 ? "" : "s"}{creator.joined ? ` · joined ${new Date(creator.joined).toLocaleDateString()}` : ""}</p></div></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${creator.status === "approved" ? "bg-emerald-50 text-emerald-700" : creator.status === "submitted" ? "bg-amber-50 text-amber-700" : ["rejected", "suspended"].includes(creator.status) ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}>{creator.status}</span></li>)}</ul></div> : <EmptyState title={loading ? "Loading people…" : "No creators have applied yet."} detail="Creator applications from the Connect studio will appear here."/>}
+    </section>}
 
     {!isAdmin && <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#042F2E] via-teal-900 to-teal-700 p-6 text-white shadow-lg sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6 sm:p-8">
       <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-emerald-400/15 blur-2xl" />
