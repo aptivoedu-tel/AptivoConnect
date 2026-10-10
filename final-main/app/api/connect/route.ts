@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
         const auth = await account();
         if (auth.error) return auth.error;
         const user = auth.user;
-        if (action !== 'moderation' && user.role !== 'student') return fail('This section is for student accounts.', 403);
+        if (action !== 'moderation' && !['student', 'super_admin'].includes(user.role)) return fail('This section is for student accounts.', 403);
 
         if (action === 'catalog') {
             const rows = await Product.find({ status: 'published' }).sort({ updated_at: -1 }).limit(60).lean();

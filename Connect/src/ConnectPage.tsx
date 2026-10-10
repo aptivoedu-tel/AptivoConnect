@@ -125,7 +125,8 @@ function ProductCard({ product, onOpen, saved, onSave, onOpenSeller }: { product
 }
 
 export default function ConnectPage({ viewer, demoOnly = false }: Props) {
-  const [tab, setTab] = useState<Tab>("discover");
+  const isAdmin = viewer?.role === "super_admin";
+  const [tab, setTab] = useState<Tab>(() => (viewer?.role === "super_admin" ? "review" : "discover"));
   const [products, setProducts] = useState<Product[]>(demoProducts.map((p) => ({ ...p, isDemo: true })));
   const [search, setSearch] = useState("");
   const [exam, setExam] = useState("All exams");
@@ -148,7 +149,6 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
   const [draftDescription, setDraftDescription] = useState("");
   const [draftSubject, setDraftSubject] = useState("Biology");
 
-  const isAdmin = viewer?.role === "super_admin";
   const canStudio = Boolean(viewer && viewer.role === "student");
   const isDemo = demoOnly;
 
@@ -218,19 +218,19 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
           <p className="mt-4 max-w-2xl text-sm leading-7 text-teal-50/80 sm:text-base">Explore focused practice and study resources made for Pakistan's entrance exams. Start with free demos, then keep your learning in one place.</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a href="#catalog" className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-teal-900/30 transition hover:bg-teal-500">Explore resources <Search className="h-4 w-4" /></a>
-            {canStudio ? <button onClick={() => { setTab("studio"); setError(""); setNotice(""); window.setTimeout(() => document.getElementById("creator")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60); }} className="inline-flex items-center gap-2 rounded-xl border border-white/25 px-5 py-3 text-sm font-semibold text-teal-50 transition hover:bg-white/10">Become a creator <Sparkles className="h-4 w-4" /></button> : <a href="/login" className="inline-flex items-center gap-2 rounded-xl border border-white/25 px-5 py-3 text-sm font-semibold text-teal-50 transition hover:bg-white/10">Become a creator <Sparkles className="h-4 w-4" /></a>}
+            {canStudio ? <button onClick={() => { setTab("studio"); setError(""); setNotice(""); window.setTimeout(() => document.getElementById("creator")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60); }} className="inline-flex items-center gap-2 rounded-xl border border-white/25 px-5 py-3 text-sm font-semibold text-teal-50 transition hover:bg-white/10">Become a creator <Sparkles className="h-4 w-4" /></button> : !isAdmin && <a href="/login" className="inline-flex items-center gap-2 rounded-xl border border-white/25 px-5 py-3 text-sm font-semibold text-teal-50 transition hover:bg-white/10">Become a creator <Sparkles className="h-4 w-4" /></a>}
           </div>
         </div>
-        <div className="hidden rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur sm:block">
+        {!isAdmin && <div className="hidden rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur sm:block">
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-teal-200">Start free</p>
           <p className="mt-3 text-2xl font-bold text-white">3 practice sets</p>
           <p className="mt-1 text-sm text-teal-50/70">Original demo questions<br />with full explanations</p>
           <div className="mt-4 flex items-center gap-2 text-xs text-teal-100/80"><Users className="h-4 w-4" />One browser-only preview, no account needed</div>
-        </div>
+        </div>}
       </div>
     </section>
 
-    <div className="sticky top-[5.5rem] z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}</div>
+    <div className="sticky top-[5.5rem] z-30 mx-auto flex w-fit flex-wrap items-center gap-1 rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-slate-200 backdrop-blur" aria-label="Connect sections">{nav("discover", "Discover")}{!isAdmin && nav("library", "My library")}{canStudio && nav("studio", "Creator studio")}{isAdmin && nav("review", "Review queue")}</div>
 
     <div className="flex flex-wrap items-center justify-between gap-4">
       <p className="text-sm text-slate-500">{filtered.length} resources in this preview · demos are clearly marked</p>
@@ -269,11 +269,11 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
 
     {tab === "review" && isAdmin && <section className="space-y-5"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-teal-600">Admin review</p><h2 className="mt-2 text-2xl font-bold text-slate-900">Submission queue</h2><p className="mt-2 text-sm text-slate-500">Approve only content that has completed the platform's review process.</p></div>{moderationData.length ? <div className="space-y-3">{moderationData.map((item, i) => { const row = item as Record<string, unknown>; const id = String(row.id ?? row._id ?? ""); return <article key={id || i} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div><p className="font-bold text-slate-900">{String(row.title ?? row.displayName ?? "Review item")}</p><p className="mt-1 text-sm text-slate-500">{String(row.type ?? row.status ?? "Awaiting review")} · {String(row.creatorName ?? row.creator_name ?? "Creator")}</p></div><button disabled={busy || !id} className={tealButton} onClick={() => void post("adminApprove", { itemId: id })}>{busy ? "Working…" : "Approve"}</button></article>; })}</div> : <EmptyState title={loading ? "Loading review queue…" : "No items are waiting for review."} detail="When creator applications or resources need review, they will appear here."/>}</section>}
 
-    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#042F2E] via-teal-900 to-teal-700 p-6 text-white shadow-lg sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6 sm:p-8">
+    {!isAdmin && <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#042F2E] via-teal-900 to-teal-700 p-6 text-white shadow-lg sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6 sm:p-8">
       <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-emerald-400/15 blur-2xl" />
       <div className="relative"><p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-300">Made for focused progress</p><h2 className="mt-2 text-xl font-bold text-white">Good preparation is built one clear step at a time.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-teal-100/80">Try an original demo set, see your explanations, and decide what you want to practice next.</p></div>
       <a href="#catalog" className="relative mt-4 inline-flex items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-teal-900 transition hover:bg-teal-50 sm:mt-0">Browse demos <Search className="ml-2 h-4 w-4" /></a>
-    </section>
+    </section>}
 
     {selected && <ProductDetail product={selected} onClose={() => setSelected(null)} onStart={(id) => { const test = demoTests.find((item) => item.id === id); if (test) { setSelected(null); setQuiz(test); } }} onOpenSeller={sellerOf(selected) ? () => { setSeller(sellerOf(selected)); setSelected(null); } : undefined} />}
     {seller && <SellerDetail seller={seller} products={products.filter((p) => p.sellerId === seller.id)} onClose={() => setSeller(null)} onOpenProduct={(p) => { setSeller(null); setSelected(p); }} />}
