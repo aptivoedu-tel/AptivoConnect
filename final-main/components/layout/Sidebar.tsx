@@ -32,7 +32,8 @@ import {
     CalendarDays,
     ClipboardList,
     Trophy,
-    UserRound
+    UserRound,
+    Store
 } from 'lucide-react';
 import { useUI } from '@/lib/context/UIContext';
 import { AuthService } from '@/lib/services/authService';
@@ -153,6 +154,7 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
             { icon: Globe2, label: 'Global Exams', href: '/admin/test-sections', section: 'Ecosystem' },
             { icon: University, label: 'Universities', href: '/admin/universities', section: 'Ecosystem' },
             { icon: Building2, label: 'Institutions', href: '/admin/institutions', section: 'Ecosystem' },
+            { icon: Store, label: 'Connect Reviews', href: '/admin/connect', section: 'Ecosystem' },
             { icon: UploadCloud, label: 'Excel Uploader', href: '/admin/excel-uploader', section: 'Ecosystem' },
 
             { header: 'HIERARCHY FORGE' },

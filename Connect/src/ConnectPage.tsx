@@ -182,7 +182,7 @@ export default function ConnectPage({ viewer, demoOnly = false }: Props) {
   }, [isDemo]);
 
   useEffect(() => { if (viewer && !isDemo) void load("catalog"); }, [viewer, isDemo, load]);
-  useEffect(() => { if (!isDemo && viewer && tab !== "discover" && tab !== "review") void load(tab); }, [tab, viewer, isDemo, load]);
+  useEffect(() => { if (!isDemo && viewer && tab !== "discover") void load(tab === "review" ? "moderation" : tab); }, [tab, viewer, isDemo, load]);
 
   const filtered = useMemo(() => products.filter((p) => {
     const text = `${p.title} ${p.description} ${p.subject} ${p.creator}`.toLowerCase();
